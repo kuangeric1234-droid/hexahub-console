@@ -108,8 +108,11 @@ class LLMClient:
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
+        text = message.content[0].text if message.content else ""
+        if message.stop_reason == "max_tokens" and text:
+            log.warning("llm_truncated", model=self.model, output_tokens=message.usage.output_tokens)
         return LLMResponse(
-            content=message.content[0].text,
+            content=text,
             provider=self.provider,
             model=self.model,
             input_tokens=message.usage.input_tokens,

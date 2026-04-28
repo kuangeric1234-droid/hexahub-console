@@ -14,11 +14,17 @@ class WeChatMomentsAgent(BaseCopyAgent):
 
     Hard cap: 150 characters. If LLM returns longer copy, it is truncated
     at the last complete sentence within the limit and a warning is added.
+
+    Western marketing skills are intentionally excluded — see XiaohongshuCopyAgent
+    docstring for the cultural rationale.
     """
     agent_name       = "wechat_moments_agent"
     platform         = Platform.wechat_moments
-    default_provider = LLMProvider.ANTHROPIC  # override with QWEN/DEEPSEEK for production
+    default_provider = LLMProvider.ANTHROPIC
     max_chars        = _MAX_CHARS
+    required_skills  = [
+        "wechat-moments-content",  # custom placeholder in backend/skills/custom/
+    ]
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         copy     = content.strip()
@@ -28,9 +34,7 @@ class WeChatMomentsAgent(BaseCopyAgent):
             warnings.append(
                 f"Copy was {len(copy)} chars and has been hard-truncated to {_MAX_CHARS}"
             )
-            # Truncate at last sentence boundary within the limit
             truncated = copy[:_MAX_CHARS]
-            # Try to cut at last Chinese sentence-end punctuation
             for punct in ("。", "！", "？", "…", ".", "!", "?"):
                 idx = truncated.rfind(punct)
                 if idx > _MAX_CHARS // 2:

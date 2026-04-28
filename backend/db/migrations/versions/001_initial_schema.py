@@ -6,10 +6,7 @@ Create Date: 2026-04-27 00:00:00.000000
 
 """
 from typing import Sequence, Union
-
-import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 revision: str = "001"
 down_revision: Union[str, None] = None
@@ -18,157 +15,124 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # ── Extensions ────────────────────────────────────────────────────────────
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    op.execute("""
+        CREATE TYPE campaignstatus  AS ENUM ('draft','active','paused','completed','archived');
+        CREATE TYPE platform        AS ENUM ('linkedin','blog','instagram','xiaohongshu','wechat_moments');
+        CREATE TYPE poststatus      AS ENUM ('pending','generating','draft','approved','rejected','scheduled','published','failed');
+        CREATE TYPE approvaldecision AS ENUM ('pending','approved','rejected');
+        CREATE TYPE assettype       AS ENUM ('image','video','document');
+        CREATE TYPE agentlogstatus  AS ENUM ('running','success','failed');
+        CREATE TYPE wordseverity    AS ENUM ('low','medium','high','critical');
 
-    # ── Enum types (created once here; all columns use create_type=False) ─────
-    op.execute("CREATE TYPE campaignstatus  AS ENUM ('draft','active','paused','completed','archived')")
-    op.execute("CREATE TYPE platform        AS ENUM ('linkedin','blog','instagram','xiaohongshu','wechat_moments')")
-    op.execute("CREATE TYPE poststatus      AS ENUM ('pending','generating','draft','approved','rejected','scheduled','published','failed')")
-    op.execute("CREATE TYPE approvaldecision AS ENUM ('pending','approved','rejected')")
-    op.execute("CREATE TYPE assettype       AS ENUM ('image','video','document')")
-    op.execute("CREATE TYPE agentlogstatus  AS ENUM ('running','success','failed')")
-    op.execute("CREATE TYPE wordseverity    AS ENUM ('low','medium','high','critical')")
+        CREATE TABLE campaigns (
+            id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name       VARCHAR(255) NOT NULL,
+            brief      TEXT NOT NULL,
+            objective  TEXT NOT NULL,
+            kpis       JSONB NOT NULL DEFAULT '{}',
+            start_date DATE NOT NULL,
+            end_date   DATE NOT NULL,
+            status     campaignstatus NOT NULL DEFAULT 'draft',
+            created_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ
+        );
 
-    # ── campaigns ─────────────────────────────────────────────────────────────
-    op.create_table(
-        "campaigns",
-        sa.Column("id",         UUID(as_uuid=True), primary_key=True),
-        sa.Column("name",       sa.String(255),     nullable=False),
-        sa.Column("brief",      sa.Text(),          nullable=False),
-        sa.Column("objective",  sa.Text(),          nullable=False),
-        sa.Column("kpis",       JSONB(),            nullable=False, server_default="{}"),
-        sa.Column("start_date", sa.Date(),          nullable=False),
-        sa.Column("end_date",   sa.Date(),          nullable=False),
-        sa.Column("status",     sa.Enum(name="campaignstatus",  create_type=False), nullable=False, server_default="draft"),
-        sa.Column("created_at", sa.DateTime(timezone=True)),
-        sa.Column("updated_at", sa.DateTime(timezone=True)),
-    )
+        CREATE TABLE content_pillars (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+            name        VARCHAR(255) NOT NULL,
+            description TEXT,
+            weight      FLOAT NOT NULL DEFAULT 1.0
+        );
 
-    # ── content_pillars ───────────────────────────────────────────────────────
-    op.create_table(
-        "content_pillars",
-        sa.Column("id",          UUID(as_uuid=True), primary_key=True),
-        sa.Column("campaign_id", UUID(as_uuid=True), sa.ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("name",        sa.String(255),     nullable=False),
-        sa.Column("description", sa.Text(),          nullable=True),
-        sa.Column("weight",      sa.Float(),         nullable=False, server_default="1.0"),
-    )
+        CREATE TABLE posts (
+            id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            campaign_id     UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+            pillar_id       UUID REFERENCES content_pillars(id) ON DELETE SET NULL,
+            platform        platform NOT NULL,
+            scheduled_at    TIMESTAMPTZ,
+            status          poststatus NOT NULL DEFAULT 'pending',
+            copy            TEXT,
+            visual_url      VARCHAR(2048),
+            metadata_json   JSONB NOT NULL DEFAULT '{}',
+            approval_status approvaldecision NOT NULL DEFAULT 'pending',
+            created_at      TIMESTAMPTZ,
+            updated_at      TIMESTAMPTZ
+        );
 
-    # ── posts ─────────────────────────────────────────────────────────────────
-    op.create_table(
-        "posts",
-        sa.Column("id",              UUID(as_uuid=True), primary_key=True),
-        sa.Column("campaign_id",     UUID(as_uuid=True), sa.ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("pillar_id",       UUID(as_uuid=True), sa.ForeignKey("content_pillars.id", ondelete="SET NULL"), nullable=True),
-        sa.Column("platform",        sa.Enum(name="platform",         create_type=False), nullable=False),
-        sa.Column("scheduled_at",    sa.DateTime(timezone=True),      nullable=True),
-        sa.Column("status",          sa.Enum(name="poststatus",       create_type=False), nullable=False, server_default="pending"),
-        sa.Column("copy",            sa.Text(),                        nullable=True),
-        sa.Column("visual_url",      sa.String(2048),                  nullable=True),
-        sa.Column("metadata_json",   JSONB(),                          nullable=False, server_default="{}"),
-        sa.Column("approval_status", sa.Enum(name="approvaldecision", create_type=False), nullable=False, server_default="pending"),
-        sa.Column("created_at",      sa.DateTime(timezone=True)),
-        sa.Column("updated_at",      sa.DateTime(timezone=True)),
-    )
+        CREATE TABLE assets (
+            id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            type              assettype NOT NULL,
+            url               VARCHAR(2048) NOT NULL,
+            tags              TEXT[] NOT NULL DEFAULT '{}',
+            performance_score FLOAT,
+            created_at        TIMESTAMPTZ
+        );
 
-    # ── assets ────────────────────────────────────────────────────────────────
-    # The `embedding` column uses the pgvector extension (enabled above).
-    # We use raw SQL for this column because SQLAlchemy's op.create_table()
-    # doesn't natively emit the `vector(1536)` type string.
-    op.create_table(
-        "assets",
-        sa.Column("id",                UUID(as_uuid=True), primary_key=True),
-        sa.Column("type",              sa.Enum(name="assettype", create_type=False), nullable=False),
-        sa.Column("url",               sa.String(2048),  nullable=False),
-        sa.Column("tags",              ARRAY(sa.String()), nullable=False, server_default="{}"),
-        sa.Column("performance_score", sa.Float(),       nullable=True),
-        sa.Column("created_at",        sa.DateTime(timezone=True)),
-    )
-    # Add vector column separately via raw DDL
-    op.execute("ALTER TABLE assets ADD COLUMN embedding vector(1536)")
+        CREATE TABLE approvals (
+            id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            post_id   UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+            reviewer  VARCHAR(255) NOT NULL,
+            decision  approvaldecision NOT NULL DEFAULT 'pending',
+            feedback  TEXT,
+            timestamp TIMESTAMPTZ
+        );
 
-    # ── approvals ─────────────────────────────────────────────────────────────
-    op.create_table(
-        "approvals",
-        sa.Column("id",        UUID(as_uuid=True), primary_key=True),
-        sa.Column("post_id",   UUID(as_uuid=True), sa.ForeignKey("posts.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("reviewer",  sa.String(255),     nullable=False),
-        sa.Column("decision",  sa.Enum(name="approvaldecision", create_type=False), nullable=False, server_default="pending"),
-        sa.Column("feedback",  sa.Text(),          nullable=True),
-        sa.Column("timestamp", sa.DateTime(timezone=True)),
-    )
+        CREATE TABLE agent_logs (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            agent_name  VARCHAR(255) NOT NULL,
+            task        VARCHAR(255) NOT NULL,
+            input_json  JSONB NOT NULL DEFAULT '{}',
+            output_json JSONB,
+            status      agentlogstatus NOT NULL DEFAULT 'running',
+            duration_ms INTEGER,
+            timestamp   TIMESTAMPTZ
+        );
 
-    # ── agent_logs ────────────────────────────────────────────────────────────
-    op.create_table(
-        "agent_logs",
-        sa.Column("id",          UUID(as_uuid=True), primary_key=True),
-        sa.Column("agent_name",  sa.String(255),     nullable=False),
-        sa.Column("task",        sa.String(255),     nullable=False),
-        sa.Column("input_json",  JSONB(),            nullable=False, server_default="{}"),
-        sa.Column("output_json", JSONB(),            nullable=True),
-        sa.Column("status",      sa.Enum(name="agentlogstatus", create_type=False), nullable=False, server_default="running"),
-        sa.Column("duration_ms", sa.Integer(),       nullable=True),
-        sa.Column("timestamp",   sa.DateTime(timezone=True)),
-    )
+        CREATE TABLE metrics (
+            id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            post_id     UUID NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+            platform    platform NOT NULL,
+            reach       INTEGER,
+            engagement  INTEGER,
+            ctr         FLOAT,
+            conversions INTEGER,
+            fetched_at  TIMESTAMPTZ
+        );
 
-    # ── metrics ───────────────────────────────────────────────────────────────
-    op.create_table(
-        "metrics",
-        sa.Column("id",          UUID(as_uuid=True), primary_key=True),
-        sa.Column("post_id",     UUID(as_uuid=True), sa.ForeignKey("posts.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("platform",    sa.Enum(name="platform", create_type=False), nullable=False),
-        sa.Column("reach",       sa.Integer(), nullable=True),
-        sa.Column("engagement",  sa.Integer(), nullable=True),
-        sa.Column("ctr",         sa.Float(),   nullable=True),
-        sa.Column("conversions", sa.Integer(), nullable=True),
-        sa.Column("fetched_at",  sa.DateTime(timezone=True)),
-    )
+        CREATE TABLE sensitive_words (
+            id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            word       VARCHAR(255) NOT NULL,
+            language   VARCHAR(10) NOT NULL DEFAULT 'en',
+            severity   wordseverity NOT NULL DEFAULT 'medium',
+            category   VARCHAR(100),
+            created_at TIMESTAMPTZ
+        );
 
-    # ── sensitive_words ───────────────────────────────────────────────────────
-    op.create_table(
-        "sensitive_words",
-        sa.Column("id",         UUID(as_uuid=True), primary_key=True),
-        sa.Column("word",       sa.String(255), nullable=False),
-        sa.Column("language",   sa.String(10),  nullable=False, server_default="en"),
-        sa.Column("severity",   sa.Enum(name="wordseverity", create_type=False), nullable=False, server_default="medium"),
-        sa.Column("category",   sa.String(100), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True)),
-    )
-
-    # ── Indexes ───────────────────────────────────────────────────────────────
-    op.create_index("ix_posts_campaign_id",    "posts",      ["campaign_id"])
-    op.create_index("ix_posts_platform",       "posts",      ["platform"])
-    op.create_index("ix_posts_scheduled_at",   "posts",      ["scheduled_at"])
-    op.create_index("ix_posts_approval_status","posts",      ["approval_status"])
-    op.create_index("ix_agent_logs_agent_name","agent_logs", ["agent_name"])
-    op.create_index("ix_agent_logs_timestamp", "agent_logs", ["timestamp"])
-    op.create_index("ix_metrics_post_id",      "metrics",    ["post_id"])
+        CREATE INDEX ix_posts_campaign_id     ON posts(campaign_id);
+        CREATE INDEX ix_posts_platform        ON posts(platform);
+        CREATE INDEX ix_posts_scheduled_at    ON posts(scheduled_at);
+        CREATE INDEX ix_posts_approval_status ON posts(approval_status);
+        CREATE INDEX ix_agent_logs_agent_name ON agent_logs(agent_name);
+        CREATE INDEX ix_agent_logs_timestamp  ON agent_logs(timestamp);
+        CREATE INDEX ix_metrics_post_id       ON metrics(post_id);
+    """)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_metrics_post_id",       table_name="metrics")
-    op.drop_index("ix_agent_logs_timestamp",  table_name="agent_logs")
-    op.drop_index("ix_agent_logs_agent_name", table_name="agent_logs")
-    op.drop_index("ix_posts_approval_status", table_name="posts")
-    op.drop_index("ix_posts_scheduled_at",    table_name="posts")
-    op.drop_index("ix_posts_platform",        table_name="posts")
-    op.drop_index("ix_posts_campaign_id",     table_name="posts")
-
-    op.drop_table("sensitive_words")
-    op.drop_table("metrics")
-    op.drop_table("agent_logs")
-    op.drop_table("approvals")
-    op.drop_table("assets")
-    op.drop_table("posts")
-    op.drop_table("content_pillars")
-    op.drop_table("campaigns")
-
-    op.execute("DROP TYPE IF EXISTS wordseverity")
-    op.execute("DROP TYPE IF EXISTS agentlogstatus")
-    op.execute("DROP TYPE IF EXISTS assettype")
-    op.execute("DROP TYPE IF EXISTS approvaldecision")
-    op.execute("DROP TYPE IF EXISTS poststatus")
-    op.execute("DROP TYPE IF EXISTS platform")
-    op.execute("DROP TYPE IF EXISTS campaignstatus")
-    op.execute("DROP EXTENSION IF EXISTS vector")
+    op.execute("""
+        DROP TABLE IF EXISTS metrics;
+        DROP TABLE IF EXISTS agent_logs;
+        DROP TABLE IF EXISTS approvals;
+        DROP TABLE IF EXISTS assets;
+        DROP TABLE IF EXISTS posts;
+        DROP TABLE IF EXISTS content_pillars;
+        DROP TABLE IF EXISTS campaigns;
+        DROP TYPE IF EXISTS wordseverity;
+        DROP TYPE IF EXISTS agentlogstatus;
+        DROP TYPE IF EXISTS assettype;
+        DROP TYPE IF EXISTS approvaldecision;
+        DROP TYPE IF EXISTS poststatus;
+        DROP TYPE IF EXISTS platform;
+        DROP TYPE IF EXISTS campaignstatus;
+    """)

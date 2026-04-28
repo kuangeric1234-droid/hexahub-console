@@ -75,10 +75,6 @@ def _route_compliance(state: CampaignWorkflowState) -> str:
     return "retry" if retry_count <= _MAX_COMPLIANCE_RETRIES else "escalate"
 
 
-def _route_after_approval(state: CampaignWorkflowState) -> str:
-    return "publish" if state.get("workflow_status") == "approved" else "skip"
-
-
 # ── Graph factory ─────────────────────────────────────────────────────────────
 
 def create_workflow(checkpointer=None):
@@ -136,18 +132,30 @@ def create_workflow(checkpointer=None):
         {"pass": "approval_queue", "retry": "copy", "escalate": "escalation"},
     )
 
-    # ── Conditional: approval decision ────────────────────────────────────
-    g.add_conditional_edges(
-        "approval_queue",
-        _route_after_approval,
-        {"publish": "publishing", "skip": "advance_post"},
-    )
+    # ── After queuing for approval, always advance to next post ──────────
+    g.add_edge("approval_queue", "advance_post")
 
     # ── Back to loop ──────────────────────────────────────────────────────
     g.add_edge("publishing", "advance_post")
     g.add_edge("escalation", "advance_post")
 
     return g.compile(checkpointer=checkpointer or MemorySaver())
+
+
+_workflow_singleton = None
+
+
+def get_workflow_app():
+    """
+    Return the module-level compiled workflow (MemorySaver by default).
+
+    Use this in API endpoints so all requests share the same in-memory
+    checkpointer state.  Swap to AsyncPostgresSaver for production.
+    """
+    global _workflow_singleton
+    if _workflow_singleton is None:
+        _workflow_singleton = create_workflow()
+    return _workflow_singleton
 
 
 def build_initial_state(

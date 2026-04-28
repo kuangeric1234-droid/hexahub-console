@@ -15,6 +15,11 @@ class InstagramCopyAgent(BaseCopyAgent):
     platform         = Platform.instagram
     default_provider = LLMProvider.ANTHROPIC
     max_chars        = 2200
+    required_skills  = [
+        "copywriting",
+        "social-content",
+        "ad-creative",
+    ]
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         copy       = content.strip()
@@ -22,7 +27,6 @@ class InstagramCopyAgent(BaseCopyAgent):
         word_count = len(copy.split())
         warnings   = self._limit_warnings(char_count, word_count)
 
-        # Extract hashtags (English and CJK-safe)
         hashtags = re.findall(r"#[\w一-鿿]+", copy)
 
         lo, hi = _TARGET_HASHTAGS

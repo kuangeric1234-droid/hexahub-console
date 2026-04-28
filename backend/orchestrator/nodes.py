@@ -27,7 +27,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
-from langgraph.types import interrupt
 
 from backend.agents.compliance import ComplianceAgent
 from backend.agents.copy import (
@@ -140,6 +139,13 @@ async def calendar_node(state: CampaignWorkflowState) -> dict:
 
 async def advance_post_node(state: CampaignWorkflowState) -> dict:
     """Pick the next slot and reset all per-post state."""
+    import asyncio
+    from backend.orchestrator.control import is_paused
+    campaign_id = state["campaign_id"]
+    while is_paused(campaign_id):
+        log.info("workflow_paused_waiting", campaign_id=campaign_id)
+        await asyncio.sleep(3)
+
     idx   = state.get("current_slot_idx", 0)
     slots = state.get("post_slots", [])
 
@@ -258,19 +264,14 @@ async def compliance_node(state: CampaignWorkflowState) -> dict:
 
 async def approval_queue_node(state: CampaignWorkflowState) -> dict:
     """
-    Saves the post as a draft and pauses the workflow for human review.
-
-    Resumes when the API calls:
-        Command(resume={"decision": "approved", "feedback": "..."})
-    or:
-        Command(resume={"decision": "rejected", "feedback": "..."})
+    Saves the post as a draft pending human review, then continues to the next post.
+    Humans approve/reject asynchronously via POST /posts/{id}/approve or /reject.
     """
     post_id_str = state.get("post_db_id")
     copy        = state["copy_output"]["copy"]
     slot        = state["current_slot"]
     log.info("node_approval_queue", post_id=post_id_str, platform=slot["platform"])
 
-    # Persist copy to the Post record and mark as draft
     post_uuid = _safe_uuid(post_id_str)
     if post_uuid:
         async with AsyncSessionLocal() as db:
@@ -281,7 +282,6 @@ async def approval_queue_node(state: CampaignWorkflowState) -> dict:
                 post.approval_status = ApprovalDecision.pending
                 await db.commit()
 
-        # Create the Approval record
         async with AsyncSessionLocal() as db:
             approval = Approval(
                 post_id=post_uuid,
@@ -291,45 +291,8 @@ async def approval_queue_node(state: CampaignWorkflowState) -> dict:
             db.add(approval)
             await db.commit()
 
-    # ── Pause and wait for human decision ─────────────────────────────────────
-    response = interrupt({
-        "type":     "approval_required",
-        "post_id":  post_id_str,
-        "platform": slot["platform"],
-        "copy":     copy,
-        "message":  "Post is ready for review. Approve or reject via /api/v1/posts/{id}/approve.",
-    })
-
-    decision = "rejected"
-    reviewer_feedback: Optional[str] = None
-    if isinstance(response, dict):
-        decision         = response.get("decision", "rejected")
-        reviewer_feedback = response.get("feedback")
-    elif isinstance(response, str):
-        decision = response
-
-    # Update the Approval record with the decision
-    if post_uuid:
-        async with AsyncSessionLocal() as db:
-            from sqlalchemy import select
-            result = await db.execute(
-                select(Approval)
-                .where(Approval.post_id == post_uuid)
-                .order_by(Approval.timestamp.desc())
-                .limit(1)
-            )
-            approval = result.scalar_one_or_none()
-            if approval:
-                approval.decision = (
-                    ApprovalDecision.approved if decision == "approved"
-                    else ApprovalDecision.rejected
-                )
-                approval.feedback = reviewer_feedback
-                await db.commit()
-
-    approved = decision == "approved"
-    log.info("node_approval_decision", post_id=post_id_str, approved=approved)
-    return {"workflow_status": "approved" if approved else "rejected"}
+    # Continue immediately — approval is async via the API
+    return {"workflow_status": "running"}
 
 
 async def publishing_node(state: CampaignWorkflowState) -> dict:

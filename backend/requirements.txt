@@ -10,20 +10,20 @@ sqlalchemy==2.0.36
 alembic==1.14.0
 asyncpg==0.30.0          # async driver for SQLAlchemy / FastAPI
 psycopg2-binary==2.9.10  # sync driver for Alembic migrations
-pgvector==0.3.6
+# pgvector==0.3.6  # requires pgvector extension installed on PostgreSQL server
 
 # ── Task queue ─────────────────────────────────────────────────────────────────
 redis==5.2.1
 celery==5.4.0
 
 # ── LLM / Agents ──────────────────────────────────────────────────────────────
-anthropic==0.40.0
-openai==1.58.1
-langgraph==0.2.60
-langgraph-checkpoint-postgres==2.0.7  # persistent workflow state in Postgres
-langchain==0.3.13
-langchain-anthropic==0.3.3
-langchain-openai==0.2.14
+anthropic>=0.41.0,<1
+openai>=1.58.1,<2
+langgraph>=0.2.60
+langgraph-checkpoint-postgres>=2.0.7
+langchain>=0.3.13
+langchain-anthropic>=0.3.3
+langchain-openai>=0.2.14
 
 # ── Storage ────────────────────────────────────────────────────────────────────
 boto3==1.35.88
@@ -31,6 +31,10 @@ boto3==1.35.88
 # ── Auth ───────────────────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+
+# ── Rate limiting ──────────────────────────────────────────────────────────────
+slowapi==0.1.9
+limits==3.14.0
 
 # ── HTTP client ────────────────────────────────────────────────────────────────
 httpx==0.28.1
@@ -46,4 +50,3 @@ pytz==2024.2
 pytest==8.3.4
 pytest-asyncio==0.24.0
 pytest-cov==6.0.0
-httpx==0.28.1            # also used as async test client

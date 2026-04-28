@@ -11,6 +11,11 @@ class LinkedInCopyAgent(BaseCopyAgent):
     platform         = Platform.linkedin
     default_provider = LLMProvider.ANTHROPIC
     max_chars        = 1300
+    required_skills  = [
+        "copywriting",
+        "social-content",
+        "marketing-psychology",
+    ]
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         copy       = content.strip()
@@ -18,7 +23,6 @@ class LinkedInCopyAgent(BaseCopyAgent):
         word_count = len(copy.split())
         warnings   = self._limit_warnings(char_count, word_count)
 
-        # Extract the hook line (first non-empty line) for metadata
         lines     = [l for l in copy.splitlines() if l.strip()]
         hook_line = lines[0] if lines else ""
 
@@ -29,7 +33,7 @@ class LinkedInCopyAgent(BaseCopyAgent):
             char_count=char_count,
             word_count=word_count,
             metadata={
-                "hook_line":         hook_line,
+                "hook_line":           hook_line,
                 "platform_char_limit": self.max_chars,
             },
             warnings=warnings,

@@ -18,10 +18,14 @@ def extract_json(text: str) -> Any:
     Tries, in order:
     1. ```json ... ``` code fence
     2. ``` ... ``` code fence
-    3. The raw text (after stripping whitespace)
+    3. First { ... } or [ ... ] block found in the text
+    4. The raw text (after stripping whitespace)
 
-    Raises json.JSONDecodeError if none succeed.
+    Raises ValueError on empty input; json.JSONDecodeError if none succeed.
     """
+    if not text or not text.strip():
+        raise ValueError("LLM returned empty response — cannot extract JSON")
+
     fences = [
         r"```json\s*([\s\S]*?)\s*```",
         r"```\s*([\s\S]*?)\s*```",
@@ -33,6 +37,15 @@ def extract_json(text: str) -> Any:
             try:
                 return json.loads(candidate)
             except json.JSONDecodeError:
-                continue  # try next pattern
+                continue
+
+    # Try to extract the first JSON object or array from prose
+    for brace_pattern in (r"\{[\s\S]*\}", r"\[[\s\S]*\]"):
+        m = re.search(brace_pattern, text)
+        if m:
+            try:
+                return json.loads(m.group(0))
+            except json.JSONDecodeError:
+                continue
 
     return json.loads(text.strip())

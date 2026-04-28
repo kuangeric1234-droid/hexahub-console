@@ -1,17 +1,13 @@
 """
 SQLAlchemy ORM models for the Hexa Hub portal.
-
-All primary keys are UUIDs. All timestamps are timezone-aware.
-The `assets.embedding` column requires the pgvector extension (enabled in the
-initial Alembic migration).
 """
 import enum
 import uuid
 from datetime import datetime
 
-from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     ARRAY,
+    Boolean,
     Column,
     Date,
     DateTime,
@@ -88,6 +84,21 @@ class Base(DeclarativeBase):
 
 # ── Models ────────────────────────────────────────────────────────────────────
 
+class User(Base):
+    __tablename__ = "users"
+
+    id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email           = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name       = Column(String(255), nullable=True)
+    role            = Column(String(50), nullable=False, default="member")  # admin / member / viewer
+    is_active       = Column(Boolean, nullable=False, default=True)
+    created_at      = Column(DateTime(timezone=True), default=datetime.utcnow)
+    last_login_at   = Column(DateTime(timezone=True), nullable=True)
+
+    ad_creative_runs = relationship("AdCreativeRun", back_populates="user")
+
+
 class Campaign(Base):
     __tablename__ = "campaigns"
 
@@ -102,8 +113,9 @@ class Campaign(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    pillars = relationship("ContentPillar", back_populates="campaign", cascade="all, delete-orphan")
-    posts   = relationship("Post", back_populates="campaign", cascade="all, delete-orphan")
+    pillars          = relationship("ContentPillar", back_populates="campaign", cascade="all, delete-orphan")
+    posts            = relationship("Post", back_populates="campaign", cascade="all, delete-orphan")
+    ad_creative_runs = relationship("AdCreativeRun", back_populates="campaign")
 
 
 class ContentPillar(Base):
@@ -139,6 +151,24 @@ class Post(Base):
     pillar    = relationship("ContentPillar", back_populates="posts")
     approvals = relationship("Approval", back_populates="post", cascade="all, delete-orphan")
     metrics   = relationship("Metric", back_populates="post", cascade="all, delete-orphan")
+    versions  = relationship("PostVersion", back_populates="post", cascade="all, delete-orphan",
+                             order_by="PostVersion.version_number")
+
+
+class PostVersion(Base):
+    """Snapshot of a post's editable fields before each PATCH."""
+    __tablename__ = "post_versions"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id        = Column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    version_number = Column(Integer, nullable=False)
+    copy           = Column(Text, nullable=True)
+    visual_url     = Column(String(2048), nullable=True)
+    scheduled_at   = Column(DateTime(timezone=True), nullable=True)
+    edited_by      = Column(String(255), nullable=True)
+    created_at     = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    post = relationship("Post", back_populates="versions")
 
 
 class Asset(Base):
@@ -147,9 +177,10 @@ class Asset(Base):
     id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     type              = Column(Enum(AssetType), nullable=False)
     url               = Column(String(2048), nullable=False)
+    name              = Column(String(255), nullable=True)
     tags              = Column(ARRAY(String), nullable=False, default=list)
     performance_score = Column(Float, nullable=True)
-    embedding         = Column(Vector(1536), nullable=True)  # 1536-dim for OpenAI / compatible models
+    # embedding column omitted — requires pgvector extension
     created_at        = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -164,6 +195,21 @@ class Approval(Base):
     timestamp = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     post = relationship("Post", back_populates="approvals")
+
+
+class AdCreativeRun(Base):
+    __tablename__ = "ad_creative_runs"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id     = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    campaign_id = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True)
+    platform    = Column(String(50), nullable=False)
+    input_json  = Column(JSONB, nullable=False, default=dict)
+    output_json = Column(JSONB, nullable=False, default=dict)
+    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    user     = relationship("User", back_populates="ad_creative_runs")
+    campaign = relationship("Campaign", back_populates="ad_creative_runs")
 
 
 class AgentLog(Base):

@@ -7,7 +7,6 @@ from backend.agents.schemas.copy import CopyInput, CopyOutput
 from backend.db.models import Platform
 from backend.llm.client import LLMProvider
 
-# XHS topic tags: # followed by Chinese characters or alphanumeric
 _TAG_PATTERN   = re.compile(r"#[一-鿿\w]+")
 _CHINESE_CHARS = re.compile(r"[一-鿿]")
 
@@ -16,8 +15,11 @@ class XiaohongshuCopyAgent(BaseCopyAgent):
     """
     种草-style copy for Xiaohongshu (小红书).
 
-    Default provider routes to Anthropic; swap to Qwen/DeepSeek for
-    higher-quality native Mandarin output::
+    Western marketing skills are intentionally excluded — the patterns
+    (种草 culture, 朋友圈 tone, 违禁词 compliance) are culturally distinct
+    and Western copywriting skills would produce mismatched output.
+
+    Swap to QWEN or DEEPSEEK provider for higher-quality native Mandarin::
 
         agent = XiaohongshuCopyAgent(
             llm_client=LLMClient(provider=LLMProvider.QWEN)
@@ -25,7 +27,10 @@ class XiaohongshuCopyAgent(BaseCopyAgent):
     """
     agent_name       = "xiaohongshu_copy_agent"
     platform         = Platform.xiaohongshu
-    default_provider = LLMProvider.ANTHROPIC  # override with QWEN for production
+    default_provider = LLMProvider.ANTHROPIC
+    required_skills  = [
+        "xiaohongshu-content",  # custom placeholder in backend/skills/custom/
+    ]
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         copy       = content.strip()

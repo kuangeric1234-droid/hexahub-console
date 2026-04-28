@@ -14,6 +14,12 @@ class BlogCopyAgent(BaseCopyAgent):
     default_provider = LLMProvider.ANTHROPIC
     min_words        = 1200
     max_words        = 2000
+    required_skills  = [
+        "copywriting",
+        "seo-audit",
+        "ai-seo",
+        "schema-markup",
+    ]
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         copy       = content.strip()
@@ -21,10 +27,7 @@ class BlogCopyAgent(BaseCopyAgent):
         word_count = len(copy.split())
         warnings   = self._limit_warnings(char_count, word_count)
 
-        # Extract H2/H3 headings
-        headings = re.findall(r"^#{2,3}\s+(.+)$", copy, re.MULTILINE)
-
-        # Extract meta description if the LLM included it
+        headings   = re.findall(r"^#{2,3}\s+(.+)$", copy, re.MULTILINE)
         meta_match = re.search(r"(?i)meta description[:\s]+(.+)", copy)
         meta_desc  = meta_match.group(1).strip() if meta_match else ""
 

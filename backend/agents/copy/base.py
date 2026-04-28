@@ -6,9 +6,13 @@ Each subclass must set:
   platform    (Platform)
 
 And optionally override:
-  max_chars   — emit a warning if copy exceeds this
-  max_words   — emit a warning if word count is outside range
+  required_skills — list of skill names injected into the system prompt
+  max_chars       — emit a warning if copy exceeds this
+  max_words       — emit a warning if word count is outside range
   _parse_output() — platform-specific post-processing (hashtag extraction, etc.)
+
+Inherits _build_system_prompt() from BaseAgent. The run() method here calls it
+so every copy agent gets skill injection automatically from required_skills.
 """
 from __future__ import annotations
 
@@ -17,10 +21,21 @@ from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pathlib import Path
+
 from backend.agents.base import BaseAgent
 from backend.agents.schemas.copy import CopyInput, CopyOutput
 from backend.db.models import Platform
 from backend.prompts import load_prompt
+
+_BRAND_CONTEXT_PATH = Path(__file__).parent.parent.parent / "prompts" / "brand_context.md"
+
+
+def _load_brand_context() -> str:
+    try:
+        return _BRAND_CONTEXT_PATH.read_text("utf-8").strip()
+    except FileNotFoundError:
+        return ""
 
 _PROMPT_NAMES: dict[Platform, str] = {
     Platform.linkedin:       "copy_linkedin",
@@ -38,14 +53,15 @@ class BaseCopyAgent(BaseAgent[CopyInput, CopyOutput]):
     max_words: Optional[int] = None
 
     async def run(self, input_data: CopyInput, db: Optional[AsyncSession] = None) -> CopyOutput:
-        system_prompt = load_prompt(_PROMPT_NAMES[self.platform])
+        # _build_system_prompt injects required_skills before the agent prompt
+        system_prompt = self._build_system_prompt(load_prompt(_PROMPT_NAMES[self.platform]))
         user_prompt   = self._build_user_prompt(input_data)
 
         response = await self.llm.complete(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=self._max_tokens(),
-            temperature=0.8,  # slightly higher for creative copy
+            temperature=0.8,
         )
         return self._parse_output(response.content, input_data)
 
@@ -57,7 +73,11 @@ class BaseCopyAgent(BaseAgent[CopyInput, CopyOutput]):
         return 2048
 
     def _build_user_prompt(self, inp: CopyInput) -> str:
-        parts = [
+        parts = []
+        brand_ctx = _load_brand_context()
+        if brand_ctx:
+            parts.append(f"## Brand context\n{brand_ctx}")
+        parts += [
             f"Working title:   {inp.working_title}",
             f"Content brief:   {inp.content_brief}",
             f"Content pillar:  {inp.pillar_name}",
@@ -66,7 +86,7 @@ class BaseCopyAgent(BaseAgent[CopyInput, CopyOutput]):
         if inp.campaign_context:
             parts.append(f"Campaign context: {inp.campaign_context}")
         parts.append("\nWrite the copy now.")
-        return "\n".join(parts)
+        return "\n\n".join(parts)
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         """Base implementation — subclasses override for platform-specific parsing."""

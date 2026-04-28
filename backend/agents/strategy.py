@@ -31,6 +31,12 @@ from backend.utils.json_utils import extract_json
 class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
     agent_name       = "strategy_agent"
     default_provider = LLMProvider.ANTHROPIC
+    required_skills  = [
+        "marketing-ideas",
+        "content-strategy",
+        "marketing-psychology",
+        "customer-research",
+    ]
 
     def validate(self, input_data: StrategyInput) -> None:
         if not input_data.brief.strip():
@@ -41,14 +47,14 @@ class StrategyAgent(BaseAgent[StrategyInput, StrategyOutput]):
             raise ValueError("start_date must be before end_date")
 
     async def run(self, input_data: StrategyInput, db: Optional[AsyncSession] = None) -> StrategyOutput:
-        system_prompt = load_prompt("strategy")
+        system_prompt = self._build_system_prompt(load_prompt("strategy"))
         user_prompt   = self._build_user_prompt(input_data)
 
         response = await self.llm.complete(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             max_tokens=2048,
-            temperature=0.5,  # lower temp for structured/factual output
+            temperature=0.5,
         )
 
         raw = extract_json(response.content)
@@ -77,7 +83,6 @@ Generate the content strategy JSON now."""
         raw:   dict,
         input_data: StrategyInput,
     ) -> StrategyOutput:
-        # Normalise pillar weights so they sum to 1.0
         pillars = [PillarDef(**p) for p in raw.get("pillars", [])]
         total   = sum(p.weight for p in pillars)
         if total > 0 and abs(total - 1.0) > 0.01:
@@ -86,9 +91,8 @@ Generate the content strategy JSON now."""
                 for p in pillars
             ]
 
-        # Filter cadence to requested platforms only
-        allowed   = {p.value for p in input_data.platforms}
-        cadence   = [
+        allowed = {p.value for p in input_data.platforms}
+        cadence = [
             PlatformCadence(**c)
             for c in raw.get("cadence", [])
             if c.get("platform") in allowed
