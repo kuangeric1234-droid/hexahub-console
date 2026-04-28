@@ -44,7 +44,7 @@ export default function LoginPage() {
       setAuth(result.user, result.access_token, result.expires_in);
       toast.success(`Welcome back${result.user.full_name ? `, ${result.user.full_name}` : ""}!`);
       const from = params.get("from") || "/";
-      router.push(from);
+      router.push(from as any);
     } catch (err) {
       toast.error(apiErrorMessage(err));
     } finally {
