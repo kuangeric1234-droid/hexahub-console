@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Optional
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -554,3 +554,40 @@ async def post_versions(
         .order_by(PostVersion.version_number.desc())
     )
     return [PostVersionResponse.model_validate(v) for v in result.scalars().all()]
+
+
+# ── POST /posts/{id}/upload-image ─────────────────────────────────────────────
+
+@router.post("/{post_id}/upload-image", response_model=PostResponse, summary="Upload image for post")
+async def upload_image(
+    post_id: uuid.UUID,
+    file:    UploadFile = File(...),
+    db:      AsyncSession = Depends(get_db),
+    _:       User         = Depends(get_current_user),
+) -> PostResponse:
+    import shutil
+    from pathlib import Path
+    from backend.main import UPLOADS_DIR
+    from backend.config import settings
+
+    post = await db.get(Post, post_id)
+    if not post:
+        raise HTTPException(404, f"Post {post_id} not found")
+
+    allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+    if file.content_type not in allowed:
+        raise HTTPException(422, f"File type {file.content_type} not allowed. Use JPEG, PNG, GIF or WebP.")
+
+    ext      = Path(file.filename or "image.jpg").suffix.lower() or ".jpg"
+    filename = f"{post_id}{ext}"
+    dest     = UPLOADS_DIR / filename
+
+    with dest.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    public_url = f"{settings.PUBLIC_BACKEND_URL.rstrip('/')}/uploads/{filename}"
+    post.visual_url = public_url
+    await db.flush()
+
+    log.info("image_uploaded", post_id=str(post_id), url=public_url)
+    return PostResponse.model_validate(post)

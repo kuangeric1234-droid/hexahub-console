@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Webhook for XHS / WeChat manual publishing packages
     WEBHOOK_URL: str = ""
 
+    # Public URL (used to build image URLs for uploaded files)
+    PUBLIC_BACKEND_URL: str = "http://localhost:8000"
+
     # App
     DEBUG:        bool = False
     DOCS_ENABLED: bool = True
