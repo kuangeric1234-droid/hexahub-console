@@ -41,11 +41,16 @@ _PLATFORM_CHARS = {
 }
 
 
+class HistoryItem(BaseModel):
+    brief: str
+    copy:  str
+
 class CreateAssistedRequest(BaseModel):
     platform:        str
     brief:           str
     image_base64:    Optional[str] = None
     image_mime_type: Optional[str] = None
+    history:         list[HistoryItem] = []
 
 
 class FormatRecommendation(BaseModel):
@@ -78,12 +83,20 @@ def _load_brand_context() -> str:
         return ""
 
 
-def _build_system_prompt(platform: str, has_image: bool) -> str:
+def _build_system_prompt(platform: str, has_image: bool, history: list[HistoryItem] | None = None) -> str:
     brand_ctx = _load_brand_context()
     formats   = _PLATFORM_FORMATS.get(platform, ["single_image", "carousel", "video"])
     char_limit = _PLATFORM_CHARS.get(platform, 2000)
 
     brand_section = f"\n\n## Brand context\n{brand_ctx}" if brand_ctx else ""
+
+    history_section = ""
+    if history:
+        items = "\n\n".join(
+            f"Brief: {h.brief}\nCopy: {h.copy[:200]}{'...' if len(h.copy) > 200 else ''}"
+            for h in history[-3:]
+        )
+        history_section = f"\n\n## Recent posts (avoid repeating these topics or angles)\n{items}"
 
     image_instruction = (
         "An image has been uploaded. Analyse it and reference it in the copy and visual brief."
@@ -91,7 +104,7 @@ def _build_system_prompt(platform: str, has_image: bool) -> str:
         "No image was uploaded. Provide 3 image suggestions in `image_suggestions`."
     )
 
-    return f"""You are a senior social media content creator for Hexa Hub.{brand_section}
+    return f"""You are a senior social media content creator for Hexa Hub.{brand_section}{history_section}
 
 Platform: {platform}
 Character limit: {char_limit}
@@ -205,7 +218,7 @@ async def create_assisted(
         return _fallback_response(body.platform, body.brief)
 
     has_image     = bool(body.image_base64)
-    system_prompt = _build_system_prompt(body.platform, has_image)
+    system_prompt = _build_system_prompt(body.platform, has_image, body.history or None)
 
     try:
         raw = await _call_llm(system_prompt, body.brief, body.image_base64, body.image_mime_type)

@@ -1,9 +1,10 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, Copy, Check, Upload, X, Image as ImageIcon,
   LayoutGrid, Film, FileText, Lightbulb, Wand2, CalendarDays, BookmarkPlus,
+  History, RotateCcw, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -89,6 +90,51 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
     staleTime: 30_000,
   });
 
+  // History
+  const HISTORY_KEY = `create_history_${platformKey}`;
+  type HistoryEntry = { id: string; ts: number; brief: string; headline: string; result: AssistResult };
+
+  function loadHistory(): HistoryEntry[] {
+    try { return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]"); }
+    catch { return []; }
+  }
+
+  const [history, setHistory] = useState<HistoryEntry[]>(() =>
+    typeof window !== "undefined" ? loadHistory() : []
+  );
+
+  function saveToHistory(brief: string, res: AssistResult) {
+    const headline = res.copy.split("\n").find(l => l.trim()) ?? brief.slice(0, 60);
+    const entry: HistoryEntry = {
+      id:       Math.random().toString(36).slice(2),
+      ts:       Date.now(),
+      brief,
+      headline: headline.slice(0, 80),
+      result:   res,
+    };
+    const updated = [entry, ...loadHistory()].slice(0, 30);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    setHistory(updated);
+  }
+
+  function restoreFromHistory(entry: HistoryEntry) {
+    setResult(entry.result);
+    setBrief(entry.brief);
+    setSaved(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function deleteHistoryItem(id: string) {
+    const updated = history.filter(h => h.id !== id);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    setHistory(updated);
+  }
+
+  function clearHistory() {
+    localStorage.removeItem(HISTORY_KEY);
+    setHistory([]);
+  }
+
   const platformKey = config.platform.toLowerCase().replace(" ", "_").replace("-", "_");
 
   function handleFileSelect(file: File) {
@@ -133,15 +179,22 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
         image_mime_type = imageFile.type;
       }
 
+      const recentHistory = loadHistory().slice(0, 3).map(h => ({
+        brief: h.brief,
+        copy:  h.result.copy,
+      }));
+
       const data = await apiClient.post<AssistResult>("/create/assisted", {
         platform:        platformKey,
         brief,
         image_base64,
         image_mime_type,
+        history:         recentHistory,
       });
 
       setResult(data);
       setSaved(false);
+      saveToHistory(brief, data);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -443,6 +496,51 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
           )}
         </div>
       </div>
+
+      {/* ── History panel ── */}
+      {history.length > 0 && (
+        <div className="space-y-3 pt-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold flex items-center gap-1.5">
+              <History className="h-4 w-4 text-muted-foreground" />
+              History
+              <Badge variant="secondary" className="text-xs">{history.length}</Badge>
+            </h3>
+            <button onClick={clearHistory}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1">
+              <Trash2 className="h-3 w-3" /> Clear all
+            </button>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {history.map((entry) => (
+              <div key={entry.id}
+                className="group relative rounded-lg border bg-card p-3 hover:border-primary/50 transition-colors cursor-pointer"
+                onClick={() => restoreFromHistory(entry)}
+              >
+                <div className="flex items-start justify-between gap-2 mb-1">
+                  <p className="text-xs font-medium line-clamp-2 flex-1">{entry.headline}</p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); deleteHistoryItem(entry.id); }}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-1">{entry.brief}</p>
+                <div className="flex items-center justify-between mt-2">
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(entry.ts).toLocaleDateString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                  <span className="text-[10px] text-primary flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <RotateCcw className="h-2.5 w-2.5" /> Restore
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
