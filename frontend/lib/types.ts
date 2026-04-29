@@ -69,6 +69,7 @@ export interface Post {
 
 export interface PostSlot {
   id:              string;
+  campaign_id:     string | null;
   platform:        string;
   pillar_id:       string | null;
   scheduled_at:    string | null;
