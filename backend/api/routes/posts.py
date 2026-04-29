@@ -199,6 +199,82 @@ async def delete_post(
     await db.flush()
 
 
+# ── POST /posts/{id}/modify ───────────────────────────────────────────────────
+
+class ModifyRequest(BaseModel):
+    instructions: str
+
+
+@router.post("/{post_id}/modify", response_model=PostResponse, summary="AI-rewrite post copy with instructions")
+async def modify_post(
+    post_id:      uuid.UUID,
+    body:         ModifyRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+) -> PostResponse:
+    import anthropic
+    from backend.config import settings
+    from backend.prompts import load_prompt
+
+    post = await db.get(Post, post_id)
+    if not post:
+        raise HTTPException(404, f"Post {post_id} not found")
+    if not post.copy:
+        raise HTTPException(422, "Post has no copy to modify")
+    if not settings.ANTHROPIC_API_KEY:
+        raise HTTPException(503, "ANTHROPIC_API_KEY not configured")
+
+    try:
+        brand_context = ""
+        try:
+            brand_context = load_prompt("brand_context")
+        except Exception:
+            pass
+
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        message = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=2048,
+            temperature=0.7,
+            system=(
+                f"You are a social media copywriter for Hexa Hub.\n\n"
+                f"{brand_context}\n\n"
+                "You will be given existing post copy and modification instructions. "
+                "Return ONLY the rewritten copy — no explanation, no preamble, no quotes around it."
+            ),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Platform: {post.platform.value}\n\n"
+                    f"Current copy:\n{post.copy}\n\n"
+                    f"Instructions: {body.instructions}\n\n"
+                    "Rewrite the copy following the instructions exactly."
+                ),
+            }],
+        )
+        new_copy = message.content[0].text.strip()
+
+        # Snapshot before overwriting
+        version_result = await db.execute(select(PostVersion).where(PostVersion.post_id == post_id))
+        current_version = len(version_result.scalars().all())
+        db.add(PostVersion(
+            post_id=post_id,
+            version_number=current_version + 1,
+            copy=post.copy,
+            visual_url=post.visual_url,
+            scheduled_at=post.scheduled_at,
+            edited_by=f"ai_modify:{current_user.email}",
+        ))
+
+        post.copy = new_copy
+        await db.flush()
+        log.info("post_modified", post_id=str(post_id), by=current_user.email)
+        return PostResponse.model_validate(post)
+
+    except anthropic.APIError as e:
+        raise HTTPException(502, f"Claude API error: {e}")
+
+
 # ── POST /posts/{id}/schedule ────────────────────────────────────────────────
 
 class ScheduleRequest(BaseModel):
