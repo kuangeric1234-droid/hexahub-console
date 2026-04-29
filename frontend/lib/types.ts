@@ -54,7 +54,7 @@ export interface CampaignUpdate {
 
 export interface Post {
   id:              string;
-  campaign_id:     string;
+  campaign_id:     string | null;
   platform:        string;
   pillar_id:       string | null;
   scheduled_at:    string | null;

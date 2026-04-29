@@ -50,12 +50,13 @@ const PLATFORMS = [
 ];
 
 type CalEvent = {
-  id:       string;
-  title:    string;
-  start:    Date;
-  end:      Date;
-  platform: string;
-  post:     PostSlot;
+  id:           string;
+  title:        string;
+  start:        Date;
+  end:          Date;
+  platform:     string;
+  post:         PostSlot;
+  campaignName?: string;
 };
 
 function buildEvents(data: CampaignCalendar): CalEvent[] {
@@ -154,11 +155,19 @@ function PostModal({ post, open, onClose, onSaved }: {
             </Badge>
             <button onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground transition-colors">✕</button>
           </div>
-          {post.scheduled_at && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-              📅 {fmt(new Date(post.scheduled_at), "EEEE, MMMM d yyyy 'at' h:mm a")}
-            </p>
-          )}
+          <div className="flex items-center gap-4">
+            {post.scheduled_at && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                📅 {fmt(new Date(post.scheduled_at), "EEEE, MMMM d yyyy 'at' h:mm a")}
+              </p>
+            )}
+            {(post as any).campaignName && (
+              <p className="text-xs text-muted-foreground">📁 {(post as any).campaignName}</p>
+            )}
+            {!(post as any).campaignName && (
+              <p className="text-xs text-muted-foreground">📁 Standalone</p>
+            )}
+          </div>
         </div>
 
         <div className="px-8 py-6 space-y-8">
@@ -260,15 +269,16 @@ function PostModal({ post, open, onClose, onSaved }: {
 
 // ── Add post modal ────────────────────────────────────────────────────────────
 
-function AddPostModal({ open, campaignId, onClose, onAdded }: {
-  open: boolean; campaignId: string; onClose: () => void; onAdded: () => void;
+function AddPostModal({ open, campaignId, campaigns, onClose, onAdded }: {
+  open: boolean; campaignId: string; campaigns: Campaign[]; onClose: () => void; onAdded: () => void;
 }) {
-  const [platform,    setPlatform]    = useState("linkedin");
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [copy,        setCopy]        = useState("");
-  const [aiPrompt,    setAiPrompt]    = useState("");
-  const [generating,  setGenerating]  = useState(false);
-  const [saving,      setSaving]      = useState(false);
+  const [platform,       setPlatform]       = useState("linkedin");
+  const [scheduledAt,    setScheduledAt]    = useState("");
+  const [copy,           setCopy]           = useState("");
+  const [aiPrompt,       setAiPrompt]       = useState("");
+  const [selectedCampaign, setSelectedCampaign] = useState(campaignId);
+  const [generating,     setGenerating]     = useState(false);
+  const [saving,         setSaving]         = useState(false);
 
   async function handleGenerate() {
     if (!aiPrompt.trim()) return;
@@ -281,10 +291,14 @@ function AddPostModal({ open, campaignId, onClose, onAdded }: {
   }
 
   async function handleSave() {
-    if (!copy.trim() || !scheduledAt) { toast.error("Add copy and a scheduled date first"); return; }
+    if (!copy.trim()) { toast.error("Add some copy first"); return; }
     setSaving(true);
     try {
-      await apiClient.post("/posts", { campaign_id: campaignId, platform, copy, scheduled_at: new Date(scheduledAt).toISOString(), status: "draft" });
+      await apiClient.post("/posts", {
+        ...(selectedCampaign ? { campaign_id: selectedCampaign } : {}),
+        platform, copy, status: "draft",
+        ...(scheduledAt ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
+      });
       toast.success("Post added"); onAdded(); onClose();
       setCopy(""); setAiPrompt(""); setScheduledAt(""); setPlatform("linkedin");
     } catch { toast.error("Failed to add post"); }
@@ -305,9 +319,18 @@ function AddPostModal({ open, campaignId, onClose, onAdded }: {
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label>Scheduled date & time</Label>
+              <Label>Scheduled date & time <span className="text-muted-foreground font-normal">(optional)</span></Label>
               <Input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Campaign <span className="text-muted-foreground font-normal">(optional)</span></Label>
+            <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={selectedCampaign} onChange={(e) => setSelectedCampaign(e.target.value)}>
+              <option value="">— No campaign (standalone) —</option>
+              {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
           </div>
 
           <div className="space-y-1.5">
@@ -377,16 +400,19 @@ export default function CalendarPage() {
 
   const refetch = isAll ? refetchAll : refetchCal;
 
+  const campaignMap = Object.fromEntries((campaigns ?? []).map(c => [c.id, c.name]));
+
   const events: CalEvent[] = isAll
     ? (allPosts ?? [])
         .filter((p): p is PostSlot & { scheduled_at: string } => !!p.scheduled_at)
         .map((p) => {
           const start = new Date(p.scheduled_at);
+          const campaignName = p.campaign_id ? campaignMap[p.campaign_id] : undefined;
           return {
             id: p.id,
             title: `${p.platform.replace("_", " ")} — ${p.copy ? p.copy.slice(0, 30) + "…" : "Draft"}`,
             start, end: new Date(start.getTime() + 30 * 60_000),
-            platform: p.platform, post: p,
+            platform: p.platform, post: p, campaignName,
           };
         })
     : calData ? buildEvents(calData) : [];
@@ -438,11 +464,9 @@ export default function CalendarPage() {
           {(campaigns ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
 
-        {!isAll && selectedId && (
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
-            <Plus className="h-3.5 w-3.5" /> Add post
-          </Button>
-        )}
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
+          <Plus className="h-3.5 w-3.5" /> Add post
+        </Button>
 
         <div className="flex flex-wrap gap-3 ml-auto text-xs">
           {Object.entries(PLATFORM_COLORS).map(([p, color]) => (
@@ -498,7 +522,9 @@ export default function CalendarPage() {
       )}
 
       <AddPostModal
-        open={addOpen} campaignId={selectedId}
+        open={addOpen}
+        campaignId={isAll ? "" : selectedId}
+        campaigns={campaigns ?? []}
         onClose={() => setAddOpen(false)}
         onAdded={() => refetch()}
       />

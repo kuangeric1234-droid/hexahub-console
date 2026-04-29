@@ -11,7 +11,7 @@ class PostResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id:              uuid.UUID
-    campaign_id:     uuid.UUID
+    campaign_id:     Optional[uuid.UUID]
     platform:        str
     pillar_id:       Optional[uuid.UUID]
     scheduled_at:    Optional[datetime]

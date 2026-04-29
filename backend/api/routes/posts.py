@@ -136,7 +136,7 @@ async def list_posts(
 # ── POST /posts ───────────────────────────────────────────────────────────────
 
 class PostCreate(BaseModel):
-    campaign_id:  uuid.UUID
+    campaign_id:  Optional[uuid.UUID] = None
     platform:     str
     copy:         Optional[str] = None
     scheduled_at: Optional[datetime] = None
@@ -162,7 +162,7 @@ async def create_post(
         copy=body.copy,
         scheduled_at=body.scheduled_at,
         status=PostStatus(body.status) if body.status in PostStatus._value2member_map_ else PostStatus.draft,
-        metadata_json={"created_by": current_user.email},
+        metadata_json={"created_by": current_user.email, "standalone": body.campaign_id is None},
     )
     db.add(post)
     await db.flush()

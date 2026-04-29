@@ -136,7 +136,7 @@ class Post(Base):
     __tablename__ = "posts"
 
     id              = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    campaign_id     = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
+    campaign_id     = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True)
     pillar_id       = Column(UUID(as_uuid=True), ForeignKey("content_pillars.id", ondelete="SET NULL"), nullable=True)
     platform        = Column(Enum(Platform), nullable=False)
     scheduled_at    = Column(DateTime(timezone=True), nullable=True)
