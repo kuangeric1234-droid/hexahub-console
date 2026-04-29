@@ -7,6 +7,8 @@ PATCH  /posts/{id}                 edit copy/visual/scheduled_at (creates PostVe
 DELETE /posts/{id}                 delete
 POST   /posts/{id}/approve         approve + resume workflow
 POST   /posts/{id}/reject          reject + resume workflow
+POST   /posts/{id}/schedule        set scheduled_at + mark as scheduled
+POST   /posts/{id}/publish-now     publish immediately
 POST   /posts/{id}/regenerate-copy   re-run CopyAgent
 POST   /posts/{id}/regenerate-visual re-run VisualAgent
 POST   /posts/{id}/run-compliance    re-run ComplianceAgent (async)
@@ -14,10 +16,12 @@ POST   /posts/{id}/run-compliance    re-run ComplianceAgent (async)
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
 import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -193,6 +197,61 @@ async def delete_post(
         raise HTTPException(404, f"Post {post_id} not found")
     await db.delete(post)
     await db.flush()
+
+
+# ── POST /posts/{id}/schedule ────────────────────────────────────────────────
+
+class ScheduleRequest(BaseModel):
+    scheduled_at: datetime
+
+
+@router.post("/{post_id}/schedule", response_model=PostResponse, summary="Schedule post for publishing")
+async def schedule_post(
+    post_id:      uuid.UUID,
+    body:         ScheduleRequest,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+) -> PostResponse:
+    from datetime import timezone
+    post = await db.get(Post, post_id)
+    if not post:
+        raise HTTPException(404, f"Post {post_id} not found")
+    if post.approval_status != ApprovalDecision.approved:
+        raise HTTPException(409, "Post must be approved before scheduling")
+    if body.scheduled_at.replace(tzinfo=timezone.utc) <= datetime.now(timezone.utc):
+        raise HTTPException(422, "scheduled_at must be in the future")
+
+    post.scheduled_at = body.scheduled_at
+    post.status       = PostStatus.scheduled
+    await db.flush()
+
+    log.info("post_scheduled", post_id=str(post_id), scheduled_at=body.scheduled_at.isoformat(),
+             by=current_user.email)
+    return PostResponse.model_validate(post)
+
+
+# ── POST /posts/{id}/publish-now ──────────────────────────────────────────────
+
+@router.post("/{post_id}/publish-now", response_model=PostResponse, summary="Publish post immediately")
+async def publish_now(
+    post_id:      uuid.UUID,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+) -> PostResponse:
+    from backend.services.scheduler import _publish_post
+    post = await db.get(Post, post_id)
+    if not post:
+        raise HTTPException(404, f"Post {post_id} not found")
+    if post.approval_status != ApprovalDecision.approved:
+        raise HTTPException(409, "Post must be approved before publishing")
+    if post.status == PostStatus.published:
+        raise HTTPException(409, "Post is already published")
+
+    await _publish_post(post, db)
+    await db.commit()
+
+    log.info("post_publish_now", post_id=str(post_id), by=current_user.email)
+    return PostResponse.model_validate(post)
 
 
 # ── POST /posts/{id}/approve ──────────────────────────────────────────────────

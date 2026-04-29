@@ -43,12 +43,14 @@ class Settings(BaseSettings):
     S3_BUCKET_NAME:        str = "hexa-hub-assets"
 
     # Platform publishing
-    LINKEDIN_ACCESS_TOKEN:  str = ""
-    LINKEDIN_PERSON_URN:    str = ""
-    META_ACCESS_TOKEN:      str = ""
-    META_IG_USER_ID:        str = ""
-    WORDPRESS_URL:          str = ""
-    WORDPRESS_APP_PASSWORD: str = ""
+    LINKEDIN_ACCESS_TOKEN:      str = ""
+    LINKEDIN_PERSON_URN:        str = ""
+    META_ACCESS_TOKEN:          str = ""
+    META_IG_USER_ID:            str = ""
+    FACEBOOK_PAGE_ID:           str = ""
+    FACEBOOK_PAGE_ACCESS_TOKEN: str = ""
+    WORDPRESS_URL:              str = ""
+    WORDPRESS_APP_PASSWORD:     str = ""
 
     # Webhook for XHS / WeChat manual publishing packages
     WEBHOOK_URL: str = ""

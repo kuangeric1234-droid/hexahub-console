@@ -4,7 +4,10 @@ const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v
 
 export const api = axios.create({
   baseURL: BASE_URL,
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
+  },
   timeout: 30_000,
 });
 

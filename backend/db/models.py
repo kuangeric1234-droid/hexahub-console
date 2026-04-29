@@ -36,6 +36,7 @@ class Platform(str, enum.Enum):
     linkedin       = "linkedin"
     blog           = "blog"
     instagram      = "instagram"
+    facebook       = "facebook"
     xiaohongshu    = "xiaohongshu"
     wechat_moments = "wechat_moments"
 

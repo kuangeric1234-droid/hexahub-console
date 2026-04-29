@@ -26,8 +26,12 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from backend.services.scheduler import scheduler, publish_due_posts
+    scheduler.add_job(publish_due_posts, "interval", minutes=1, id="publish_scheduler", replace_existing=True)
+    scheduler.start()
     log.info("startup", version=__version__, debug=settings.DEBUG)
     yield
+    scheduler.shutdown(wait=False)
     log.info("shutdown")
 
 
