@@ -69,6 +69,8 @@ const FORMAT_LABELS: Record<string, string> = {
 };
 
 export function AgentForm({ config }: { config: AgentFormConfig }) {
+  const platformKey = config.platform.toLowerCase().replace(" ", "_").replace("-", "_");
+
   const [brief,        setBrief]        = useState("");
   const [result,       setResult]       = useState<AssistResult | null>(null);
   const [loading,      setLoading]      = useState(false);
@@ -134,8 +136,6 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
     localStorage.removeItem(HISTORY_KEY);
     setHistory([]);
   }
-
-  const platformKey = config.platform.toLowerCase().replace(" ", "_").replace("-", "_");
 
   function handleFileSelect(file: File) {
     if (!file.type.startsWith("image/")) {
