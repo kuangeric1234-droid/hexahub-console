@@ -337,10 +337,12 @@ function AddPostModal({ open, campaignId, onClose, onAdded }: {
   );
 }
 
+const ALL_APPROVED = "__all__";
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const [selectedId,   setSelectedId]   = useState<string>("");
+  const [selectedId,   setSelectedId]   = useState<string>(ALL_APPROVED);
   const [selectedPost, setSelectedPost] = useState<PostSlot | null>(null);
   const [addOpen,      setAddOpen]      = useState(false);
   const [calDate,      setCalDate]      = useState(new Date());
@@ -350,13 +352,42 @@ export default function CalendarPage() {
     queryFn:  async () => (await api.get<Campaign[]>("/campaigns")).data,
   });
 
-  const { data: calData, isLoading: loadingCal, refetch } = useQuery<CampaignCalendar>({
-    queryKey: ["calendar", selectedId],
-    queryFn:  async () => (await api.get<CampaignCalendar>(`/campaigns/${selectedId}/calendar`)).data,
-    enabled:  !!selectedId,
+  const isAll = selectedId === ALL_APPROVED;
+
+  // All approved posts across every campaign
+  const { data: allPosts, isLoading: loadingAll, refetch: refetchAll } = useQuery<PostSlot[]>({
+    queryKey: ["posts", "approved"],
+    queryFn:  async () => {
+      const res = await api.get<PostSlot[]>("/posts?approval_status=approved&page_size=200");
+      return res.data;
+    },
+    enabled: isAll,
   });
 
-  const events: CalEvent[] = calData ? buildEvents(calData) : [];
+  // Single campaign calendar
+  const { data: calData, isLoading: loadingCal, refetch: refetchCal } = useQuery<CampaignCalendar>({
+    queryKey: ["calendar", selectedId],
+    queryFn:  async () => (await api.get<CampaignCalendar>(`/campaigns/${selectedId}/calendar`)).data,
+    enabled:  !isAll && !!selectedId,
+  });
+
+  const refetch = isAll ? refetchAll : refetchCal;
+
+  const events: CalEvent[] = isAll
+    ? (allPosts ?? [])
+        .filter((p): p is PostSlot & { scheduled_at: string } => !!p.scheduled_at)
+        .map((p) => {
+          const start = new Date(p.scheduled_at);
+          return {
+            id: p.id,
+            title: `${p.platform.replace("_", " ")} — ${p.copy ? p.copy.slice(0, 30) + "…" : "Draft"}`,
+            start, end: new Date(start.getTime() + 30 * 60_000),
+            platform: p.platform, post: p,
+          };
+        })
+    : calData ? buildEvents(calData) : [];
+
+  const isLoading = isAll ? loadingAll : (loadingCampaigns || loadingCal);
 
   const reschedule = useMutation({
     mutationFn: ({ id, start }: { id: string; start: Date }) =>
@@ -384,11 +415,12 @@ export default function CalendarPage() {
           value={selectedId}
           onChange={(e) => { setSelectedId(e.target.value); setSelectedPost(null); }}
         >
-          <option value="">— Select campaign —</option>
+          <option value={ALL_APPROVED}>All approved posts</option>
+          <option disabled>─────────────</option>
           {(campaigns ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
 
-        {selectedId && (
+        {!isAll && selectedId && (
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
             <Plus className="h-3.5 w-3.5" /> Add post
           </Button>
@@ -404,17 +436,7 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      {loadingCampaigns ? (
-        <Skeleton className="h-full rounded-lg" />
-      ) : !selectedId ? (
-        <div className="flex h-64 flex-col items-center justify-center gap-3 rounded-lg border border-dashed text-center">
-          <CalendarDays className="h-10 w-10 text-muted-foreground opacity-40" />
-          <div>
-            <p className="text-sm font-medium">Select a campaign</p>
-            <p className="text-xs text-muted-foreground mt-1">Choose a campaign above to view its scheduled posts.</p>
-          </div>
-        </div>
-      ) : loadingCal ? (
+      {isLoading ? (
         <Skeleton className="h-full rounded-lg" />
       ) : (
         <div className="rounded-lg border bg-card p-3 h-full">
