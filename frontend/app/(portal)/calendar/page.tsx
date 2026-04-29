@@ -337,12 +337,18 @@ function AddPostModal({ open, campaignId, onClose, onAdded }: {
   );
 }
 
-const ALL_APPROVED = "__all__";
+const ALL_POSTS = "__all__";
+
+const APPROVAL_DOT: Record<string, string> = {
+  approved:  "#22c55e",
+  rejected:  "#ef4444",
+  pending:   "#f59e0b",
+};
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CalendarPage() {
-  const [selectedId,   setSelectedId]   = useState<string>(ALL_APPROVED);
+  const [selectedId,   setSelectedId]   = useState<string>(ALL_POSTS);
   const [selectedPost, setSelectedPost] = useState<PostSlot | null>(null);
   const [addOpen,      setAddOpen]      = useState(false);
   const [calDate,      setCalDate]      = useState(new Date());
@@ -352,13 +358,13 @@ export default function CalendarPage() {
     queryFn:  async () => (await api.get<Campaign[]>("/campaigns")).data,
   });
 
-  const isAll = selectedId === ALL_APPROVED;
+  const isAll = selectedId === ALL_POSTS;
 
-  // All approved posts across every campaign
+  // All posts across every campaign
   const { data: allPosts, isLoading: loadingAll, refetch: refetchAll } = useQuery<PostSlot[]>({
-    queryKey: ["posts", "approved"],
+    queryKey: ["posts", "all"],
     queryFn:  async () => {
-      const res = await api.get<PostSlot[]>("/posts?approval_status=approved&page_size=200");
+      const res = await api.get<PostSlot[]>("/posts?page_size=200");
       return res.data;
     },
     enabled: isAll,
@@ -386,6 +392,20 @@ export default function CalendarPage() {
           };
         })
     : calData ? buildEvents(calData) : [];
+
+  function getEventStyle(e: CalEvent) {
+    const dotColor = APPROVAL_DOT[e.post.approval_status] ?? "#94a3b8";
+    return {
+      backgroundColor: PLATFORM_COLORS[e.platform] ?? "#64748b",
+      border: `2px solid ${dotColor}`,
+      borderRadius: "4px",
+      color: "#fff",
+      fontSize: "11px",
+      padding: "2px 5px",
+      cursor: "grab",
+      opacity: e.post.approval_status === "pending" ? 0.75 : 1,
+    };
+  }
 
   const isLoading = isAll ? loadingAll : (loadingCampaigns || loadingCal);
 
@@ -415,7 +435,7 @@ export default function CalendarPage() {
           value={selectedId}
           onChange={(e) => { setSelectedId(e.target.value); setSelectedPost(null); }}
         >
-          <option value={ALL_APPROVED}>All approved posts</option>
+          <option value={ALL_POSTS}>All posts (all campaigns)</option>
           <option disabled>─────────────</option>
           {(campaigns ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
@@ -431,6 +451,13 @@ export default function CalendarPage() {
             <span key={p} className="flex items-center gap-1.5 text-muted-foreground">
               <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
               {p.replace("_", " ")}
+            </span>
+          ))}
+          <span className="w-px h-4 bg-border mx-1" />
+          {Object.entries(APPROVAL_DOT).map(([status, color]) => (
+            <span key={status} className="flex items-center gap-1.5 text-muted-foreground">
+              <span className="h-2.5 w-2.5 rounded-sm border-2 shrink-0" style={{ borderColor: color }} />
+              {status}
             </span>
           ))}
         </div>
@@ -451,13 +478,7 @@ export default function CalendarPage() {
             onEventDrop={handleEventDrop as any}
             onEventResize={handleEventResize as any}
             resizable
-            eventPropGetter={(e: object) => ({
-              style: {
-                backgroundColor: PLATFORM_COLORS[(e as CalEvent).platform] ?? "#64748b",
-                border: "none", borderRadius: "4px", color: "#fff",
-                fontSize: "11px", padding: "2px 5px", cursor: "grab",
-              },
-            })}
+            eventPropGetter={(e: object) => ({ style: getEventStyle(e as CalEvent) })}
             style={{ height: "100%" }}
           />
         </div>
