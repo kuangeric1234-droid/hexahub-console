@@ -363,7 +363,7 @@ export default function CalendarPage() {
   // All posts across every campaign
   const { data: allPosts, isLoading: loadingAll, error: allPostsError, refetch: refetchAll } = useQuery<PostSlot[]>({
     queryKey: ["posts", "all"],
-    queryFn:  () => apiClient.get<PostSlot[]>("/posts?page_size=200"),
+    queryFn:  () => apiClient.get<PostSlot[]>("/posts?page_size=100"),
     enabled:  isAll,
     staleTime: 0,
   });
