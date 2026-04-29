@@ -482,6 +482,7 @@ export default function CalendarPage() {
             onEventDrop={handleEventDrop as any}
             onEventResize={handleEventResize as any}
             resizable
+            popup
             eventPropGetter={(e: object) => ({ style: getEventStyle(e as CalEvent) })}
             style={{ height: "100%" }}
           />
