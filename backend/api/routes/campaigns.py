@@ -246,11 +246,11 @@ async def update_campaign(
     return CampaignResponse.model_validate(campaign)
 
 
-# ── DELETE /campaigns/{id} — soft delete via status=archived ──────────────────
+# ── POST /campaigns/{id}/archive — soft delete ────────────────────────────────
 
-@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT,
-               response_model=None, summary="Archive campaign (soft delete)")
-async def delete_campaign(
+@router.post("/{campaign_id}/archive", status_code=status.HTTP_204_NO_CONTENT,
+             response_model=None, summary="Archive campaign (soft delete)")
+async def archive_campaign(
     campaign_id: uuid.UUID,
     db:          AsyncSession = Depends(get_db),
     _:           User         = Depends(get_current_user),
@@ -259,6 +259,22 @@ async def delete_campaign(
     if not campaign:
         raise HTTPException(404, f"Campaign {campaign_id} not found")
     campaign.status = CampaignStatus.archived
+    await db.flush()
+
+
+# ── DELETE /campaigns/{id} — hard delete ──────────────────────────────────────
+
+@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT,
+               response_model=None, summary="Permanently delete campaign and all posts")
+async def delete_campaign(
+    campaign_id: uuid.UUID,
+    db:          AsyncSession = Depends(get_db),
+    _:           User         = Depends(get_current_user),
+) -> None:
+    campaign = await db.get(Campaign, campaign_id)
+    if not campaign:
+        raise HTTPException(404, f"Campaign {campaign_id} not found")
+    await db.delete(campaign)
     await db.flush()
 
 

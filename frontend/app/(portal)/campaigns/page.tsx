@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { addWeeks, format } from "date-fns";
-import { Plus, Loader2, CalendarDays, Sparkles, Pencil, ArrowRight, CheckCircle2, MoreHorizontal, Trash2, Eye } from "lucide-react";
+import { Plus, Loader2, CalendarDays, Sparkles, Pencil, ArrowRight, CheckCircle2, MoreHorizontal, Trash2, Eye, Archive } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,7 +40,7 @@ type DraftResult = {
   suggested_platforms: string[]; suggested_weeks: number; ai_generated: boolean;
 };
 
-function CampaignCard({ c, onClick, onDelete }: { c: Campaign; onClick: () => void; onDelete: () => void }) {
+function CampaignCard({ c, onClick, onArchive, onDelete }: { c: Campaign; onClick: () => void; onArchive: () => void; onDelete: () => void }) {
   return (
     <Card className="hover:shadow-md transition-shadow group">
       <CardHeader className="pb-2">
@@ -70,10 +70,15 @@ function CampaignCard({ c, onClick, onDelete }: { c: Campaign; onClick: () => vo
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
+                  onClick={(e) => { e.stopPropagation(); onArchive(); }}
+                >
+                  <Archive className="h-4 w-4 mr-2" /> Archive
+                </DropdownMenuItem>
+                <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
                   onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 >
-                  <Trash2 className="h-4 w-4 mr-2" /> Delete
+                  <Trash2 className="h-4 w-4 mr-2" /> Delete permanently
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -129,19 +134,31 @@ export default function CampaignsPage() {
     setMode("ai");
   }
 
-  const [confirmDelete, setConfirmDelete] = useState<Campaign | null>(null);
+  const [confirmDelete,  setConfirmDelete]  = useState<Campaign | null>(null);
+  const [confirmArchive, setConfirmArchive] = useState<Campaign | null>(null);
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
     queryFn:  () => apiClient.get<Campaign[]>("/campaigns"),
   });
 
-  // Delete campaign
+  // Archive campaign (soft delete)
+  const archiveCampaign = useMutation({
+    mutationFn: (id: string) => apiClient.post(`/campaigns/${id}/archive`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+      toast.success("Campaign archived.");
+      setConfirmArchive(null);
+    },
+    onError: (err: Error) => toast.error(err.message || "Failed to archive campaign."),
+  });
+
+  // Hard delete campaign
   const deleteCampaign = useMutation({
     mutationFn: (id: string) => apiClient.del(`/campaigns/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["campaigns"] });
-      toast.success("Campaign deleted.");
+      toast.success("Campaign permanently deleted.");
       setConfirmDelete(null);
     },
     onError: (err: Error) => toast.error(err.message || "Failed to delete campaign."),
@@ -214,6 +231,7 @@ export default function CampaignsPage() {
             <CampaignCard
               key={c.id} c={c}
               onClick={() => router.push(`/campaigns/${c.id}`)}
+              onArchive={() => setConfirmArchive(c)}
               onDelete={() => setConfirmDelete(c)}
             />
           ))}
@@ -231,14 +249,36 @@ export default function CampaignsPage() {
         </div>
       )}
 
+      {/* ── Archive confirmation ─────────────────────────────────────────────── */}
+      <Dialog open={!!confirmArchive} onOpenChange={(v) => { if (!v) setConfirmArchive(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Archive campaign?</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            <strong className="text-foreground">{confirmArchive?.name}</strong> will be archived and hidden from your campaigns list. You can restore it later by changing its status.
+          </p>
+          <div className="flex gap-2 justify-end mt-2">
+            <Button variant="outline" onClick={() => setConfirmArchive(null)}>Cancel</Button>
+            <Button
+              disabled={archiveCampaign.isPending}
+              onClick={() => confirmArchive && archiveCampaign.mutate(confirmArchive.id)}
+            >
+              {archiveCampaign.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Archive className="h-4 w-4 mr-1.5" />}
+              Archive
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Delete confirmation ─────────────────────────────────────────────── */}
       <Dialog open={!!confirmDelete} onOpenChange={(v) => { if (!v) setConfirmDelete(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete campaign?</DialogTitle>
+            <DialogTitle>Permanently delete campaign?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            <strong className="text-foreground">{confirmDelete?.name}</strong> will be archived and removed from your campaigns list. This cannot be undone.
+            <strong className="text-foreground">{confirmDelete?.name}</strong> and all its posts will be permanently deleted. This cannot be undone.
           </p>
           <div className="flex gap-2 justify-end mt-2">
             <Button variant="outline" onClick={() => setConfirmDelete(null)}>Cancel</Button>
@@ -248,7 +288,7 @@ export default function CampaignsPage() {
               onClick={() => confirmDelete && deleteCampaign.mutate(confirmDelete.id)}
             >
               {deleteCampaign.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
-              Delete
+              Delete permanently
             </Button>
           </div>
         </DialogContent>
