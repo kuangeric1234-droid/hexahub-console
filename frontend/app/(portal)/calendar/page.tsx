@@ -361,13 +361,11 @@ export default function CalendarPage() {
   const isAll = selectedId === ALL_POSTS;
 
   // All posts across every campaign
-  const { data: allPosts, isLoading: loadingAll, refetch: refetchAll } = useQuery<PostSlot[]>({
+  const { data: allPosts, isLoading: loadingAll, error: allPostsError, refetch: refetchAll } = useQuery<PostSlot[]>({
     queryKey: ["posts", "all"],
-    queryFn:  async () => {
-      const res = await api.get<PostSlot[]>("/posts?page_size=200");
-      return res.data;
-    },
-    enabled: isAll,
+    queryFn:  () => apiClient.get<PostSlot[]>("/posts?page_size=200"),
+    enabled:  isAll,
+    staleTime: 0,
   });
 
   // Single campaign calendar
@@ -462,6 +460,12 @@ export default function CalendarPage() {
           ))}
         </div>
       </div>
+
+      {allPostsError && isAll && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Failed to load posts: {(allPostsError as Error).message}
+        </div>
+      )}
 
       {isLoading ? (
         <Skeleton className="h-full rounded-lg" />
