@@ -1,16 +1,19 @@
 "use client";
 import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Loader2, Sparkles, Copy, Check, Upload, X, Image as ImageIcon,
-  LayoutGrid, Film, FileText, Lightbulb, Wand2,
+  LayoutGrid, Film, FileText, Lightbulb, Wand2, CalendarDays, BookmarkPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { apiClient } from "@/lib/api";
+import { Campaign } from "@/lib/types";
 import { toast } from "sonner";
 
 export interface AgentFormConfig {
@@ -65,14 +68,26 @@ const FORMAT_LABELS: Record<string, string> = {
 };
 
 export function AgentForm({ config }: { config: AgentFormConfig }) {
-  const [brief,       setBrief]       = useState("");
-  const [result,      setResult]      = useState<AssistResult | null>(null);
-  const [loading,     setLoading]     = useState(false);
-  const [copied,      setCopied]      = useState(false);
-  const [imageFile,   setImageFile]   = useState<File | null>(null);
+  const [brief,        setBrief]        = useState("");
+  const [result,       setResult]       = useState<AssistResult | null>(null);
+  const [loading,      setLoading]      = useState(false);
+  const [copied,       setCopied]       = useState(false);
+  const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [dragOver,    setDragOver]    = useState(false);
-  const fileInputRef  = useRef<HTMLInputElement>(null);
+  const [dragOver,     setDragOver]     = useState(false);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+
+  // Save to campaign
+  const [campaignId,   setCampaignId]   = useState("");
+  const [scheduledAt,  setScheduledAt]  = useState("");
+  const [saving,       setSaving]       = useState(false);
+  const [saved,        setSaved]        = useState(false);
+
+  const { data: campaigns } = useQuery<Campaign[]>({
+    queryKey: ["campaigns"],
+    queryFn:  () => apiClient.get<Campaign[]>("/campaigns"),
+    staleTime: 30_000,
+  });
 
   const platformKey = config.platform.toLowerCase().replace(" ", "_").replace("-", "_");
 
@@ -126,10 +141,32 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
       });
 
       setResult(data);
+      setSaved(false);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSave(schedule: boolean) {
+    if (!result || !campaignId) { toast.error("Select a campaign first"); return; }
+    if (schedule && !scheduledAt) { toast.error("Pick a date and time"); return; }
+    setSaving(true);
+    try {
+      await apiClient.post("/posts", {
+        campaign_id:  campaignId,
+        platform:     platformKey,
+        copy:         result.copy,
+        status:       "draft",
+        ...(schedule ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
+      });
+      setSaved(true);
+      toast.success(schedule ? "Post saved and scheduled ✓" : "Post saved as draft ✓");
+    } catch {
+      toast.error("Save failed");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -329,6 +366,71 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
                   </CardContent>
                 </Card>
               )}
+
+              {/* ── Save to Campaign ── */}
+              <Card className={`border-primary/40 ${saved ? "bg-green-50 dark:bg-green-950/20" : ""}`}>
+                <CardHeader className="pb-2 pt-3 px-4">
+                  <CardTitle className="text-sm flex items-center gap-1.5">
+                    <CalendarDays className="h-4 w-4 text-primary" />
+                    Save to Campaign
+                    {saved && <Badge variant="default" className="ml-auto text-xs bg-green-600">Saved ✓</Badge>}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Campaign</Label>
+                    <select
+                      className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                      value={campaignId}
+                      onChange={(e) => setCampaignId(e.target.value)}
+                    >
+                      <option value="">— Select campaign —</option>
+                      {(campaigns ?? []).map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-xs flex items-center gap-1.5">
+                      <CalendarDays className="h-3 w-3" /> Schedule date & time
+                      <span className="text-muted-foreground font-normal">(optional)</span>
+                    </Label>
+                    <Input
+                      type="datetime-local"
+                      value={scheduledAt}
+                      onChange={(e) => setScheduledAt(e.target.value)}
+                      min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm" className="flex-1 gap-1.5"
+                      disabled={saving || !campaignId || !scheduledAt || saved}
+                      onClick={() => handleSave(true)}
+                    >
+                      {saving
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <CalendarDays className="h-3.5 w-3.5" />}
+                      Save & Schedule
+                    </Button>
+                    <Button
+                      size="sm" variant="outline" className="flex-1 gap-1.5"
+                      disabled={saving || !campaignId || saved}
+                      onClick={() => handleSave(false)}
+                    >
+                      <BookmarkPlus className="h-3.5 w-3.5" />
+                      Save as Draft
+                    </Button>
+                  </div>
+                  {saved && (
+                    <p className="text-xs text-center text-muted-foreground">
+                      Find it in Approvals or the Calendar to review and publish.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           ) : (
             <Card className="min-h-[300px] flex items-center justify-center">
