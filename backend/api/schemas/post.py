@@ -25,9 +25,10 @@ class PostResponse(BaseModel):
 
 
 class PostUpdate(BaseModel):
-    copy:         Optional[str]      = None
-    visual_url:   Optional[str]      = None
-    scheduled_at: Optional[datetime] = None
+    copy:          Optional[str]            = None
+    visual_url:    Optional[str]            = None
+    scheduled_at:  Optional[datetime]       = None
+    metadata_json: Optional[dict[str, Any]] = None
 
 
 class PostVersionResponse(BaseModel):

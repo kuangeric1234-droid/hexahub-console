@@ -133,6 +133,43 @@ async def list_posts(
     return [PostResponse.model_validate(p) for p in result.scalars().all()]
 
 
+# ── POST /posts ───────────────────────────────────────────────────────────────
+
+class PostCreate(BaseModel):
+    campaign_id:  uuid.UUID
+    platform:     str
+    copy:         Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    status:       str = "draft"
+
+
+@router.post("", response_model=PostResponse, status_code=201, summary="Manually create a post")
+async def create_post(
+    body:         PostCreate,
+    db:           AsyncSession = Depends(get_db),
+    current_user: User         = Depends(get_current_user),
+) -> PostResponse:
+    from backend.db.models import Platform as PlatformEnum
+    try:
+        platform = PlatformEnum(body.platform)
+    except ValueError:
+        raise HTTPException(422, f"Unknown platform: {body.platform}")
+
+    post = Post(
+        id=uuid.uuid4(),
+        campaign_id=body.campaign_id,
+        platform=platform,
+        copy=body.copy,
+        scheduled_at=body.scheduled_at,
+        status=PostStatus(body.status) if body.status in PostStatus._value2member_map_ else PostStatus.draft,
+        metadata_json={"created_by": current_user.email},
+    )
+    db.add(post)
+    await db.flush()
+    log.info("post_created_manually", post_id=str(post.id), by=current_user.email)
+    return PostResponse.model_validate(post)
+
+
 # ── GET /posts/{id} ────────────────────────────────────────────────────────────
 
 @router.get("/{post_id}", response_model=PostResponse, summary="Post detail")
@@ -177,9 +214,10 @@ async def update_post(
     )
     db.add(snapshot)
 
-    if body.copy         is not None: post.copy         = body.copy
-    if body.visual_url   is not None: post.visual_url   = body.visual_url
-    if body.scheduled_at is not None: post.scheduled_at = body.scheduled_at
+    if body.copy          is not None: post.copy          = body.copy
+    if body.visual_url    is not None: post.visual_url    = body.visual_url
+    if body.scheduled_at  is not None: post.scheduled_at  = body.scheduled_at
+    if body.metadata_json is not None: post.metadata_json = body.metadata_json
     await db.flush()
     return PostResponse.model_validate(post)
 
