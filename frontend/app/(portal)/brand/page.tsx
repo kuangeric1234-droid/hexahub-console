@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Save, Loader2, BookOpen, Sparkles, Copy, Check, Upload } from "lucide-react";
+import { Save, Loader2, BookOpen, Sparkles, Copy, Check, Upload, ScanLine, Plus, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api/client";
+import { apiClient } from "@/lib/api";
 import { BrandContext, SkillList } from "@/lib/types";
 
 // ── Brand data from Hexa guidelines ──────────────────────────────────────────
@@ -159,6 +160,7 @@ const TABS = [
   { id: "marks",      label: "Brand Marks"},
   { id: "context",    label: "AI Context" },
   { id: "skills",     label: "Skills"     },
+  { id: "scanner",    label: "🧬 Scanner" },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -506,6 +508,172 @@ export default function BrandKitPage() {
           )}
         </div>
       )}
+
+      {/* ── Scanner tab ─────────────────────────────────────────────────────── */}
+      {tab === "scanner" && <ScannerTab />}
+    </div>
+  );
+}
+
+// ── Scanner component ─────────────────────────────────────────────────────────
+
+const SCAN_PLATFORMS = ["LinkedIn", "Instagram", "Facebook", "Xiaohongshu", "WeChat Moments", "Blog"];
+
+function ScannerTab() {
+  const [samples,    setSamples]    = useState<{ platform: string; posts: string[] }[]>(
+    SCAN_PLATFORMS.map(p => ({ platform: p.toLowerCase().replace(" ", "_"), posts: [""] }))
+  );
+  const [activePlat, setActivePlat] = useState(0);
+  const [scanning,   setScanning]   = useState(false);
+  const [dna,        setDna]        = useState("");
+  const [saving,     setSaving]     = useState(false);
+  const [saved,      setSaved]      = useState(false);
+
+  useEffect(() => {
+    apiClient.get<{ content: string; exists: boolean }>("/brand/dna")
+      .then((r) => { if (r.exists) setDna(r.content); })
+      .catch(() => {});
+  }, []);
+
+  function updatePost(platIdx: number, postIdx: number, value: string) {
+    setSamples(prev => prev.map((s, i) =>
+      i !== platIdx ? s : { ...s, posts: s.posts.map((p, j) => j === postIdx ? value : p) }
+    ));
+  }
+
+  function addPost(platIdx: number) {
+    setSamples(prev => prev.map((s, i) => i !== platIdx ? s : { ...s, posts: [...s.posts, ""] }));
+  }
+
+  function removePost(platIdx: number, postIdx: number) {
+    setSamples(prev => prev.map((s, i) =>
+      i !== platIdx ? s : { ...s, posts: s.posts.filter((_, j) => j !== postIdx) }
+    ));
+  }
+
+  async function handleScan() {
+    const payload = samples
+      .map(s => ({ platform: s.platform, posts: s.posts.filter(p => p.trim()) }))
+      .filter(s => s.posts.length > 0);
+    if (payload.length === 0) { toast.error("Paste at least one post to analyse"); return; }
+    setScanning(true);
+    try {
+      const result = await apiClient.post<{ dna: string; saved: boolean }>("/brand/scan", { samples: payload });
+      setDna(result.dna);
+      setSaved(true);
+      toast.success("Content DNA generated and saved ✓");
+    } catch { toast.error("Scan failed"); }
+    finally { setScanning(false); }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await apiClient.put("/brand/dna", { content: dna });
+      setSaved(true);
+      toast.success("Content DNA saved — all future generations will use this");
+    } catch { toast.error("Save failed"); }
+    finally { setSaving(false); }
+  }
+
+  const totalPosts = samples.reduce((n, s) => n + s.posts.filter(p => p.trim()).length, 0);
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      {/* ── Left: paste posts ── */}
+      <div className="space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold">Paste your existing posts</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Add posts from each platform. Claude will analyse your voice, themes and style.
+          </p>
+        </div>
+
+        {/* Platform tabs */}
+        <div className="flex flex-wrap gap-1.5">
+          {SCAN_PLATFORMS.map((p, i) => {
+            const count = samples[i].posts.filter(x => x.trim()).length;
+            return (
+              <button key={p} onClick={() => setActivePlat(i)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  activePlat === i ? "bg-primary text-primary-foreground" : "bg-muted hover:bg-muted/80"
+                }`}>
+                {p} {count > 0 && <span className="ml-1 opacity-70">({count})</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Post inputs for active platform */}
+        <Card>
+          <CardHeader className="pb-2 pt-3 px-4">
+            <CardTitle className="text-sm">{SCAN_PLATFORMS[activePlat]} posts</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            {samples[activePlat].posts.map((post, j) => (
+              <div key={j} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Post {j + 1}</span>
+                  {samples[activePlat].posts.length > 1 && (
+                    <button onClick={() => removePost(activePlat, j)}
+                      className="text-muted-foreground hover:text-destructive transition-colors">
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+                <Textarea rows={4} value={post} placeholder="Paste a post here…"
+                  onChange={(e) => updatePost(activePlat, j, e.target.value)}
+                  className="text-sm resize-none" />
+              </div>
+            ))}
+            <Button size="sm" variant="outline" className="w-full gap-1.5"
+              onClick={() => addPost(activePlat)}>
+              <Plus className="h-3.5 w-3.5" /> Add another post
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Button className="w-full gap-2" onClick={handleScan}
+          disabled={scanning || totalPosts === 0}>
+          {scanning
+            ? <><Loader2 className="h-4 w-4 animate-spin" /> Analysing {totalPosts} posts…</>
+            : <><ScanLine className="h-4 w-4" /> Analyse {totalPosts > 0 ? `${totalPosts} posts` : "posts"}</>}
+        </Button>
+      </div>
+
+      {/* ── Right: DNA result ── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold">Content DNA</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {saved ? "Saved — injected into every future generation" : "Run the scanner to generate"}
+            </p>
+          </div>
+          {dna && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save
+            </Button>
+          )}
+        </div>
+
+        {dna ? (
+          <Card className={saved ? "border-green-500/30 bg-green-50/30 dark:bg-green-950/10" : ""}>
+            <CardContent className="px-4 py-4">
+              <pre className="text-xs whitespace-pre-wrap font-sans leading-relaxed">{dna}</pre>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="min-h-[400px] flex items-center justify-center">
+            <div className="text-center text-muted-foreground space-y-2">
+              <ScanLine className="h-8 w-8 mx-auto opacity-30" />
+              <p className="text-sm">Paste your posts and click Analyse.</p>
+              <p className="text-xs opacity-70">The more posts you add, the more accurate the profile.</p>
+            </div>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }

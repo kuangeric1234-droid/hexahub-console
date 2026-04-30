@@ -23,6 +23,7 @@ log    = structlog.get_logger()
 router = APIRouter(prefix="/create", tags=["create"])
 
 _BRAND_CONTEXT_PATH = Path(__file__).parent.parent.parent / "prompts" / "brand_context.md"
+_BRAND_DNA_PATH     = Path(__file__).parent.parent.parent / "prompts" / "brand_dna.md"
 
 _PLATFORM_FORMATS = {
     "linkedin":       ["article", "single_image", "carousel", "video", "document"],
@@ -83,12 +84,21 @@ def _load_brand_context() -> str:
         return ""
 
 
+def _load_brand_dna() -> str:
+    try:
+        return _BRAND_DNA_PATH.read_text("utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
 def _build_system_prompt(platform: str, has_image: bool, history: list[HistoryItem] | None = None) -> str:
     brand_ctx = _load_brand_context()
+    brand_dna = _load_brand_dna()
     formats   = _PLATFORM_FORMATS.get(platform, ["single_image", "carousel", "video"])
     char_limit = _PLATFORM_CHARS.get(platform, 2000)
 
     brand_section = f"\n\n## Brand context\n{brand_ctx}" if brand_ctx else ""
+    dna_section   = f"\n\n## Content DNA (your existing style — match this voice)\n{brand_dna}" if brand_dna else ""
 
     history_section = ""
     if history:
@@ -104,7 +114,7 @@ def _build_system_prompt(platform: str, has_image: bool, history: list[HistoryIt
         "No image was uploaded. Provide 3 image suggestions in `image_suggestions`."
     )
 
-    return f"""You are a senior social media content creator for Hexa Hub.{brand_section}{history_section}
+    return f"""You are a senior social media content creator for Hexa Hub.{brand_section}{dna_section}{history_section}
 
 Platform: {platform}
 Character limit: {char_limit}
