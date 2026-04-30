@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Save, Loader2, BookOpen, Sparkles, Copy, Check, Upload, ScanLine, Plus, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -169,10 +169,12 @@ type TabId = typeof TABS[number]["id"];
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function BrandKitPage() {
-  const searchParams = useSearchParams();
-  const [tab,     setTab]     = useState<TabId>(() =>
-    searchParams.get("scanner") ? "scanner" : "colours"
-  );
+  const [tab, setTab] = useState<TabId>("colours");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("scanner")) setTab("scanner");
+  }, []);
   const [content, setContent] = useState("");
   const [dirty,   setDirty]   = useState(false);
   const [copied,  setCopied]  = useState(false);
@@ -524,8 +526,7 @@ export default function BrandKitPage() {
 const SCAN_PLATFORMS = ["LinkedIn", "Instagram", "Facebook", "Xiaohongshu", "WeChat Moments", "Blog"];
 
 function ScannerTab() {
-  const searchParams   = useSearchParams();
-  const router         = useRouter();
+  const router = useRouter();
   const [samples,    setSamples]    = useState<{ platform: string; posts: string[] }[]>(
     SCAN_PLATFORMS.map(p => ({ platform: p.toLowerCase().replace(" ", "_"), posts: [""] }))
   );
@@ -545,7 +546,8 @@ function ScannerTab() {
 
   // Auto-populate from Meta OAuth callback
   useEffect(() => {
-    if (searchParams.get("scanner") !== "meta") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("scanner") !== "meta") return;
     const raw = localStorage.getItem("meta_fetched_posts");
     const name = localStorage.getItem("meta_account_name");
     if (!raw) return;
@@ -576,9 +578,9 @@ function ScannerTab() {
       else if (hasFacebook) setActivePlat(SCAN_PLATFORMS.indexOf("Facebook"));
 
       toast.success(`Imported ${posts.length} posts from Meta`);
-      router.replace("/brand?tab=scanner", { scroll: false });
+      router.replace("/brand", { scroll: false });
     } catch { /* malformed JSON, ignore */ }
-  }, [searchParams, router]);
+  }, [router]);
 
   const handleConnectMeta = useCallback(async () => {
     setConnecting(true);
