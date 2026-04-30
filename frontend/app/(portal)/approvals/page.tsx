@@ -200,15 +200,24 @@ function ApprovalCard({
 
 export default function ApprovalsPage() {
   const qc = useQueryClient();
-  const [decidingId,  setDecidingId]  = useState<string | null>(null);
-  const [modifyingId, setModifyingId] = useState<string | null>(null);
-  const [savingId,    setSavingId]    = useState<string | null>(null);
+  const [decidingId,       setDecidingId]       = useState<string | null>(null);
+  const [modifyingId,      setModifyingId]      = useState<string | null>(null);
+  const [savingId,         setSavingId]         = useState<string | null>(null);
+  const [campaignFilter,   setCampaignFilter]   = useState<string | null>(null);
 
   const { data: queue, isLoading } = useQuery<ApprovalQueueItem[]>({
     queryKey: ["approvals", "queue"],
     queryFn:  () => apiClient.get<ApprovalQueueItem[]>("/approvals/queue"),
     refetchInterval: 15_000,
   });
+
+  const campaigns = queue
+    ? Array.from(new Map(queue.map(i => [i.campaign_id, i.campaign_name])).entries())
+    : [];
+
+  const filtered = queue
+    ? (campaignFilter ? queue.filter(i => i.campaign_id === campaignFilter) : queue)
+    : [];
 
   const approve = useMutation({
     mutationFn: ({ id, feedback }: { id: string; feedback: string }) =>
@@ -253,15 +262,49 @@ export default function ApprovalsPage() {
         )}
       </div>
 
+      {/* ── Campaign filter ── */}
+      {campaigns.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setCampaignFilter(null)}
+            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+              campaignFilter === null
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted hover:bg-muted/80"
+            }`}
+          >
+            All ({queue!.length})
+          </button>
+          {campaigns.map(([id, name]) => {
+            const count = queue!.filter(i => i.campaign_id === id).length;
+            return (
+              <button
+                key={id}
+                onClick={() => setCampaignFilter(id)}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                  campaignFilter === id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted hover:bg-muted/80"
+                }`}
+              >
+                {name} ({count})
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-64 rounded-lg" />)}
         </div>
       ) : !queue || queue.length === 0 ? (
         <p className="text-sm text-muted-foreground">No posts pending approval.</p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No posts pending for this campaign.</p>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {queue.map((item) => (
+          {filtered.map((item) => (
             <ApprovalCard
               key={item.post_id}
               item={item}
