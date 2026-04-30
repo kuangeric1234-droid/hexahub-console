@@ -82,7 +82,7 @@ export default function IntegrationsPage() {
   });
 
   const disconnect = useMutation({
-    mutationFn: () => apiClient.delete("/social/meta/disconnect"),
+    mutationFn: () => apiClient.del("/social/meta/disconnect"),
     onSuccess:  () => {
       queryClient.invalidateQueries({ queryKey: ["meta-status"] });
       toast.success("Disconnected");
