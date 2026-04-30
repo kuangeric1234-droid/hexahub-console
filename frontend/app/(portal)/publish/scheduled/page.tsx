@@ -422,7 +422,7 @@ export default function ScheduledPage() {
         </div>
       )}
 
-      {[...grouped.entries()].map(([dateKey, dayPosts]) => {
+      {[...grouped.entries()].map(([dateKey, dayPosts]: [string, PostSlot[]]) => {
         const date = new Date(dateKey + "T00:00:00");
         return (
           <div key={dateKey} className="space-y-3">
