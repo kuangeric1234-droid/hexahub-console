@@ -15,6 +15,7 @@ from backend.api.routes.logs       import router as logs_router
 from backend.api.routes.webhooks   import router as webhooks_router
 from backend.api.routes.create      import router as create_router
 from backend.api.routes.social_auth import router as social_router
+from backend.api.routes.drive      import router as drive_router
 
 # Repurpose endpoint from the existing tools module (preserved)
 from backend.api.tools import router as tools_router
@@ -34,3 +35,4 @@ api_router.include_router(webhooks_router)
 api_router.include_router(create_router)
 api_router.include_router(social_router)
 api_router.include_router(tools_router)   # /repurpose endpoint
+api_router.include_router(drive_router)

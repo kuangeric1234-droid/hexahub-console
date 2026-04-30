@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     LINKEDIN_CLIENT_ID:     str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
 
+    # Google Drive asset browser
+    GOOGLE_DRIVE_API_KEY:   str = ""
+    GOOGLE_DRIVE_FOLDER_ID: str = ""
+
     # App
     DEBUG:        bool = False
     DOCS_ENABLED: bool = True
