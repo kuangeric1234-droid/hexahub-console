@@ -256,3 +256,134 @@ async def create_assisted(
         word_count=len(copy.split()),
         platform=body.platform,
     )
+
+
+# ── POST /create/generate-image ───────────────────────────────────────────────
+
+_PLATFORM_SIZE: dict[str, str] = {
+    "instagram":      "1024x1024",
+    "facebook":       "1024x1024",
+    "linkedin":       "1024x1024",
+    "xiaohongshu":    "1024x1792",
+    "wechat_moments": "1024x1024",
+    "blog":           "1792x1024",
+}
+
+_VISION_SYSTEM = """You are a creative director for Hexa Hub, a Melbourne business infrastructure platform.
+Analyse the reference image and the user's instructions, then write a precise DALL-E 3 prompt.
+
+Brand aesthetics: clean, operational, modern, real photography feel. White/black/navy palette.
+Location context: Huntingdale, Melbourne warehouse and logistics facility.
+
+Output ONLY the DALL-E 3 prompt — no explanation, no preamble, no quotes. Max 900 characters."""
+
+
+class GenerateImageRequest(BaseModel):
+    instructions:    str
+    platform:        str   = "instagram"
+    drive_file_id:   Optional[str] = None   # reference image from Drive
+
+
+class GenerateImageResponse(BaseModel):
+    image_url:    str   # MinIO URL of the generated image
+    prompt_used:  str   # the DALL-E 3 prompt that was generated
+
+
+@router.post("/generate-image", response_model=GenerateImageResponse,
+             summary="GPT-4 Vision + DALL-E 3 image generation with optional Drive reference")
+async def generate_image(
+    body: GenerateImageRequest,
+    _:    User = Depends(get_current_user),
+) -> GenerateImageResponse:
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(503, "OPENAI_API_KEY not configured — add it to backend/.env")
+
+    import httpx
+    import uuid as _uuid
+    from openai import AsyncOpenAI
+
+    openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+    # ── Step 1: fetch reference image from Drive if provided ──────────────────
+    image_b64: Optional[str] = None
+    if body.drive_file_id:
+        if not settings.GOOGLE_DRIVE_API_KEY:
+            raise HTTPException(503, "GOOGLE_DRIVE_API_KEY not configured")
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            dl = await client.get(
+                f"https://www.googleapis.com/drive/v3/files/{body.drive_file_id}",
+                params={"alt": "media", "key": settings.GOOGLE_DRIVE_API_KEY},
+            )
+            if dl.status_code != 200:
+                raise HTTPException(502, f"Could not fetch Drive image: {dl.text[:200]}")
+            image_b64 = base64.b64encode(dl.content).decode()
+
+    # ── Step 2: GPT-4 Vision → build DALL-E prompt ────────────────────────────
+    user_parts: list = []
+    if image_b64:
+        user_parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{image_b64}", "detail": "low"},
+        })
+    user_parts.append({
+        "type": "text",
+        "text": (
+            f"Platform: {body.platform}\n"
+            f"User instructions: {body.instructions or 'Create a compelling marketing visual for Hexa Hub.'}\n\n"
+            "Write the DALL-E 3 prompt now."
+        ),
+    })
+
+    vision_resp = await openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": _VISION_SYSTEM},
+            {"role": "user",   "content": user_parts},
+        ],
+        max_tokens=400,
+        temperature=0.7,
+    )
+    dalle_prompt = vision_resp.choices[0].message.content or body.instructions
+
+    # ── Step 3: DALL-E 3 generation ───────────────────────────────────────────
+    size = _PLATFORM_SIZE.get(body.platform, "1024x1024")
+    img_resp = await openai.images.generate(
+        model="dall-e-3",
+        prompt=dalle_prompt,
+        size=size,          # type: ignore[arg-type]
+        quality="standard",
+        n=1,
+    )
+    generated_url = img_resp.data[0].url
+    if not generated_url:
+        raise HTTPException(502, "DALL-E 3 returned no image URL")
+
+    # ── Step 4: download generated image + upload to MinIO ───────────────────
+    async with httpx.AsyncClient(timeout=60) as client:
+        img_dl = await client.get(generated_url)
+        img_dl.raise_for_status()
+        img_bytes = img_dl.content
+
+    import boto3 as _boto3
+    asset_id = _uuid.uuid4()
+    key      = f"assets/{asset_id}.png"
+    try:
+        s3 = _boto3.client(
+            "s3",
+            endpoint_url=settings.AWS_ENDPOINT_URL or None,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        )
+        s3.put_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=key,
+            Body=img_bytes,
+            ContentType="image/png",
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Storage upload failed: {exc}")
+
+    minio_url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
+    log.info("image_generated", asset_id=str(asset_id), platform=body.platform, prompt=dalle_prompt[:80])
+
+    return GenerateImageResponse(image_url=minio_url, prompt_used=dalle_prompt)

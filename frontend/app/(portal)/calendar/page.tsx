@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { CalendarDays, Plus, Save, Wand2, Loader2, MessageSquare } from "lucide-react";
+import { CalendarDays, Plus, Save, Wand2, Loader2, MessageSquare, Sparkles, ImageOff, FolderOpen, ChevronLeft, CheckCircle2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { apiClient } from "@/lib/api";
 import { Campaign, CampaignCalendar, PostSlot } from "@/lib/types";
@@ -72,6 +72,184 @@ function buildEvents(data: CampaignCalendar): CalEvent[] {
     });
 }
 
+// ── Generate Image Dialog ─────────────────────────────────────────────────────
+
+interface DriveFile {
+  id: string; name: string; mimeType: string;
+  size: number | null; is_folder: boolean; thumbnail_url: string | null;
+}
+interface DriveFilesResponse {
+  files: DriveFile[]; next_page_token: string | null;
+}
+
+function GenerateImageDialog({ open, onClose, platform, onUseImage }: {
+  open: boolean; onClose: () => void;
+  platform: string; onUseImage: (url: string) => void;
+}) {
+  const [folderStack,   setFolderStack]   = useState<{ id: string; name: string }[]>([]);
+  const [selectedFile,  setSelectedFile]  = useState<DriveFile | null>(null);
+  const [instructions,  setInstructions]  = useState("");
+  const [generating,    setGenerating]    = useState(false);
+  const [generatedUrl,  setGeneratedUrl]  = useState<string | null>(null);
+  const [promptUsed,    setPromptUsed]    = useState("");
+
+  const currentFolderId = folderStack.length > 0 ? folderStack[folderStack.length - 1].id : null;
+
+  const { data: driveData, isLoading: driveLoading } = useQuery<DriveFilesResponse>({
+    queryKey: ["drive-picker", currentFolderId],
+    queryFn: () => {
+      const params = new URLSearchParams({ page_size: "30", type: "image" });
+      if (currentFolderId) params.set("folder_id", currentFolderId);
+      return apiClient.get<DriveFilesResponse>(`/drive/files?${params}`);
+    },
+    staleTime: 60_000,
+  });
+
+  async function handleGenerate() {
+    if (!instructions.trim() && !selectedFile) {
+      toast.error("Add instructions or pick a reference image"); return;
+    }
+    setGenerating(true);
+    setGeneratedUrl(null);
+    try {
+      const result = await apiClient.post<{ image_url: string; prompt_used: string }>(
+        "/create/generate-image",
+        { instructions, platform, drive_file_id: selectedFile?.id ?? null }
+      );
+      setGeneratedUrl(result.image_url);
+      setPromptUsed(result.prompt_used);
+    } catch (e: any) {
+      toast.error(e.message ?? "Generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function handleUse() {
+    if (generatedUrl) { onUseImage(generatedUrl); onClose(); }
+  }
+
+  function reset() {
+    setGeneratedUrl(null); setSelectedFile(null);
+    setInstructions(""); setFolderStack([]);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) { reset(); onClose(); } }}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden p-0 flex flex-col">
+        <DialogHeader className="px-6 pt-5 pb-3 border-b flex-shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-purple-500" /> Generate Image with AI
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left — Drive picker */}
+          <div className="w-64 border-r flex-shrink-0 flex flex-col">
+            <div className="px-4 py-3 border-b">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2">Reference image</p>
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                {folderStack.length > 0 && (
+                  <button onClick={() => setFolderStack((s) => s.slice(0, -1))}
+                    className="hover:text-foreground"><ChevronLeft className="h-3 w-3" /></button>
+                )}
+                <span className="truncate">{folderStack.length > 0 ? folderStack[folderStack.length - 1].name : "Drive root"}</span>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3">
+              {driveLoading ? (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[...Array(9)].map((_, i) => <div key={i} className="aspect-square rounded bg-muted animate-pulse" />)}
+                </div>
+              ) : !driveData?.files.length ? (
+                <div className="text-center py-8 text-xs text-muted-foreground">No images found</div>
+              ) : (
+                <div className="grid grid-cols-3 gap-1.5">
+                  {driveData.files.map((f) => f.is_folder ? (
+                    <button key={f.id} onClick={() => setFolderStack((s) => [...s, { id: f.id, name: f.name }])}
+                      className="aspect-square rounded border bg-muted/40 flex flex-col items-center justify-center gap-1 hover:bg-muted transition-colors p-1">
+                      <FolderOpen className="h-4 w-4 text-amber-500" />
+                      <span className="text-xs line-clamp-1 leading-tight">{f.name}</span>
+                    </button>
+                  ) : (
+                    <button key={f.id} onClick={() => setSelectedFile(f === selectedFile ? null : f)}
+                      className={`relative aspect-square rounded border overflow-hidden transition-all ${selectedFile?.id === f.id ? "ring-2 ring-purple-500 border-purple-500" : "hover:border-muted-foreground"}`}>
+                      {f.thumbnail_url ? (
+                        <img src={f.thumbnail_url} alt={f.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-muted flex items-center justify-center">
+                          <ImageOff className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      {selectedFile?.id === f.id && (
+                        <div className="absolute inset-0 bg-purple-500/20 flex items-center justify-center">
+                          <CheckCircle2 className="h-5 w-5 text-purple-600" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {selectedFile && (
+              <div className="px-3 py-2 border-t bg-muted/20 text-xs text-muted-foreground truncate">
+                ✓ {selectedFile.name}
+              </div>
+            )}
+          </div>
+
+          {/* Right — instructions + preview */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Instructions</p>
+                <Textarea
+                  rows={4}
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  placeholder="e.g. Warmer tones, show people at work, add dramatic lighting, urban Melbourne vibe, clean modern warehouse…"
+                  className="text-sm resize-none border-0 bg-muted/30 focus-visible:ring-1 rounded-lg p-4"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {selectedFile ? "GPT-4 will analyse your reference image + apply these instructions." : "No reference — DALL-E generates from instructions only."}
+                </p>
+              </div>
+
+              {!generatedUrl ? (
+                <Button className="w-full gap-2 bg-purple-600 hover:bg-purple-700" onClick={handleGenerate}
+                  disabled={generating || (!instructions.trim() && !selectedFile)}>
+                  {generating
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                    : <><Sparkles className="h-4 w-4" /> Generate</>}
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Preview</p>
+                  <img src={generatedUrl} alt="Generated" className="w-full rounded-lg border" />
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={handleUse}>Use this image</Button>
+                    <Button variant="outline" className="flex-1" onClick={() => { setGeneratedUrl(null); handleGenerate(); }}
+                      disabled={generating}>
+                      {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Try again"}
+                    </Button>
+                  </div>
+                  {promptUsed && (
+                    <details className="text-xs text-muted-foreground">
+                      <summary className="cursor-pointer hover:text-foreground">View prompt used</summary>
+                      <p className="mt-1 leading-relaxed">{promptUsed}</p>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Platform connection config ────────────────────────────────────────────────
 
 const PLATFORM_META = ["instagram", "facebook"];
@@ -110,10 +288,11 @@ function PostModal({ post, open, onClose, onSaved }: {
   const [savingNote,  setSavingNote]  = useState(false);
   const [rewriting,   setRewriting]   = useState(false);
   const [uploading,   setUploading]   = useState(false);
-  const [scheduling,  setScheduling]  = useState(false);
-  const [approving,   setApproving]   = useState(false);
-  const [rejectNote,  setRejectNote]  = useState("");
-  const [dragOver,    setDragOver]    = useState(false);
+  const [scheduling,   setScheduling]  = useState(false);
+  const [approving,    setApproving]   = useState(false);
+  const [rejectNote,   setRejectNote]  = useState("");
+  const [dragOver,     setDragOver]    = useState(false);
+  const [genImgOpen,   setGenImgOpen]  = useState(false);
 
   const token = typeof window !== "undefined"
     ? (localStorage.getItem("hexa_token") ?? localStorage.getItem("hexa_portal_token"))
@@ -264,7 +443,13 @@ function PostModal({ post, open, onClose, onSaved }: {
 
             {/* Image upload */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Image</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Image</p>
+                <Button size="sm" variant="outline" className="h-7 text-xs gap-1.5 border-purple-200 text-purple-700 hover:bg-purple-50"
+                  onClick={() => setGenImgOpen(true)}>
+                  <Sparkles className="h-3 w-3" /> Generate with AI
+                </Button>
+              </div>
               {imageUrl ? (
                 <div className="relative group">
                   <img src={imageUrl} alt="Post visual" className="w-full max-h-64 object-cover rounded-lg border" />
@@ -447,6 +632,18 @@ function PostModal({ post, open, onClose, onSaved }: {
           </div>
         </div>
       </DialogContent>
+
+      <GenerateImageDialog
+        open={genImgOpen}
+        onClose={() => setGenImgOpen(false)}
+        platform={post.platform}
+        onUseImage={(url) => {
+          setImageUrl(url);
+          apiClient.patch(`/posts/${post.id}`, { visual_url: url });
+          onSaved({ visual_url: url });
+          toast.success("Generated image attached to post");
+        }}
+      />
     </Dialog>
   );
 }
