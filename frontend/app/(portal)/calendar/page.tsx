@@ -111,6 +111,8 @@ function PostModal({ post, open, onClose, onSaved }: {
   const [rewriting,   setRewriting]   = useState(false);
   const [uploading,   setUploading]   = useState(false);
   const [scheduling,  setScheduling]  = useState(false);
+  const [approving,   setApproving]   = useState(false);
+  const [rejectNote,  setRejectNote]  = useState("");
   const [dragOver,    setDragOver]    = useState(false);
 
   const token = typeof window !== "undefined"
@@ -170,6 +172,27 @@ function PostModal({ post, open, onClose, onSaved }: {
       onSaved({ scheduled_at: iso, status: "scheduled" });
     } catch { toast.error("Failed"); }
     finally { setScheduling(false); }
+  }
+
+  async function handleApprove() {
+    setApproving(true);
+    try {
+      await apiClient.post(`/posts/${post.id}/approve`, {});
+      toast.success("Post approved");
+      onSaved({ approval_status: "approved" });
+    } catch { toast.error("Failed to approve"); }
+    finally { setApproving(false); }
+  }
+
+  async function handleReject() {
+    setApproving(true);
+    try {
+      await apiClient.post(`/posts/${post.id}/reject`, { feedback: rejectNote || "Rejected from calendar" });
+      toast.success("Post rejected");
+      onSaved({ approval_status: "rejected" });
+      setRejectNote("");
+    } catch { toast.error("Failed to reject"); }
+    finally { setApproving(false); }
   }
 
   async function handleUnschedule() {
@@ -319,6 +342,45 @@ function PostModal({ post, open, onClose, onSaved }: {
 
           {/* Right — scheduling panel */}
           <div className="w-64 border-l flex-shrink-0 bg-muted/10 overflow-y-auto p-5 space-y-6">
+
+            {/* Approval */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Approval</p>
+              {post.approval_status === "approved" ? (
+                <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
+                  <span>✓</span><span>Approved</span>
+                </div>
+              ) : post.approval_status === "rejected" ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-destructive text-sm font-medium">
+                    <span>✗</span><span>Rejected</span>
+                  </div>
+                  <Button size="sm" className="w-full gap-1.5 bg-green-600 hover:bg-green-700"
+                    onClick={handleApprove} disabled={approving}>
+                    {approving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Re-approve"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Button size="sm" className="w-full bg-green-600 hover:bg-green-700"
+                    onClick={handleApprove} disabled={approving}>
+                    {approving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "✓ Approve"}
+                  </Button>
+                  <Input
+                    value={rejectNote}
+                    onChange={(e) => setRejectNote(e.target.value)}
+                    placeholder="Rejection reason (optional)"
+                    className="text-xs"
+                  />
+                  <Button size="sm" variant="outline" className="w-full text-destructive border-destructive/30"
+                    onClick={handleReject} disabled={approving}>
+                    ✗ Reject
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <Separator />
 
             {/* Posting on */}
             <div className="space-y-2">
@@ -492,11 +554,19 @@ const APPROVAL_DOT: Record<string, string> = {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const APPROVAL_FILTERS = [
+  { value: "all",      label: "All statuses" },
+  { value: "pending",  label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+];
+
 export default function CalendarPage() {
-  const [selectedId,   setSelectedId]   = useState<string>(ALL_POSTS);
-  const [selectedPost, setSelectedPost] = useState<PostSlot | null>(null);
-  const [addOpen,      setAddOpen]      = useState(false);
-  const [calDate,      setCalDate]      = useState(new Date());
+  const [selectedId,      setSelectedId]      = useState<string>(ALL_POSTS);
+  const [selectedPost,    setSelectedPost]    = useState<PostSlot | null>(null);
+  const [addOpen,         setAddOpen]         = useState(false);
+  const [calDate,         setCalDate]         = useState(new Date());
+  const [approvalFilter,  setApprovalFilter]  = useState("all");
 
   const { data: campaigns, isLoading: loadingCampaigns } = useQuery<Campaign[]>({
     queryKey: ["campaigns"],
@@ -524,7 +594,7 @@ export default function CalendarPage() {
 
   const campaignMap = Object.fromEntries((campaigns ?? []).map(c => [c.id, c.name]));
 
-  const events: CalEvent[] = isAll
+  const rawEvents: CalEvent[] = isAll
     ? (allPosts ?? [])
         .filter((p): p is PostSlot & { scheduled_at: string } => !!p.scheduled_at)
         .map((p) => {
@@ -538,6 +608,10 @@ export default function CalendarPage() {
           };
         })
     : calData ? buildEvents(calData) : [];
+
+  const events = approvalFilter === "all"
+    ? rawEvents
+    : rawEvents.filter((e) => e.post.approval_status === approvalFilter);
 
   function getEventStyle(e: CalEvent) {
     const dotColor = APPROVAL_DOT[e.post.approval_status] ?? "#94a3b8";
@@ -584,6 +658,14 @@ export default function CalendarPage() {
           <option value={ALL_POSTS}>All posts (all campaigns)</option>
           <option disabled>─────────────</option>
           {(campaigns ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+
+        <select
+          className="rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          value={approvalFilter}
+          onChange={(e) => setApprovalFilter(e.target.value)}
+        >
+          {APPROVAL_FILTERS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
 
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddOpen(true)}>
