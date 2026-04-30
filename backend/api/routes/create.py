@@ -380,7 +380,7 @@ async def generate_image(
             Body=img_bytes,
             ContentType="image/png",
         )
-        final_url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
+        final_url = f"{settings.PUBLIC_BACKEND_URL}/images/{key}"
         log.info("image_generated", asset_id=str(asset_id), platform=body.platform, storage="minio")
     except Exception as exc:
         # MinIO not running — return the DALL-E URL directly (valid ~1 hour)

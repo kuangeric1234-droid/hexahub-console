@@ -186,7 +186,7 @@ async def import_drive_file(
             Body=content,
             ContentType=body.mime_type,
         )
-        url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
+        url = f"{settings.PUBLIC_BACKEND_URL}/images/{key}"
     except Exception as exc:
         log.warning("drive_import_s3_failed", error=str(exc))
         raise HTTPException(502, f"Storage upload failed: {exc}")

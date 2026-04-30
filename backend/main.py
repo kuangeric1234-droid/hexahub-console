@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -104,3 +104,22 @@ app.include_router(api_router)
 @app.get("/health", tags=["meta"])
 async def health() -> dict:
     return {"status": "ok", "version": __version__}
+
+
+@app.get("/images/{path:path}", tags=["meta"], include_in_schema=False)
+async def serve_image(path: str) -> Response:
+    """Proxy MinIO assets through the backend so they're reachable via ngrok."""
+    try:
+        import boto3
+        s3  = boto3.client(
+            "s3",
+            endpoint_url=settings.AWS_ENDPOINT_URL or None,
+            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+        )
+        obj          = s3.get_object(Bucket=settings.S3_BUCKET_NAME, Key=path)
+        content_type = obj.get("ContentType", "application/octet-stream")
+        body         = obj["Body"].read()
+        return Response(content=body, media_type=content_type)
+    except Exception:
+        raise HTTPException(404, "Image not found")

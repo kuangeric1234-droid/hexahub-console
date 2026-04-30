@@ -78,7 +78,7 @@ async def upload_asset(
             Body=content,
             ContentType=file.content_type,
         )
-        url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
+        url = f"{settings.PUBLIC_BACKEND_URL}/images/{key}"
     except Exception as exc:
         log.warning("s3_upload_failed", error=str(exc))
         raise HTTPException(502, f"Storage upload failed: {exc}")
