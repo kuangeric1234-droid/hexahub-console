@@ -1,14 +1,14 @@
 """add social_connections table
 
-Revision ID: 004
-Revises: 003
+Revision ID: 005
+Revises: 004
 Create Date: 2026-04-30 00:00:00.000000
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision: str = "004"
-down_revision: str = "003"
+revision: str = "005"
+down_revision: str = "004"
 branch_labels = None
 depends_on = None
 
