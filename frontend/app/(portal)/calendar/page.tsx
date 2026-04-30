@@ -72,24 +72,56 @@ function buildEvents(data: CampaignCalendar): CalEvent[] {
     });
 }
 
-// ── Post detail modal (Notion-style) ─────────────────────────────────────────
+// ── Platform connection config ────────────────────────────────────────────────
+
+const PLATFORM_META = ["instagram", "facebook"];
+
+function platformConnectionLabel(
+  platform: string,
+  metaStatus: { connected: boolean; page_name?: string | null; ig_username?: string | null } | undefined,
+): { connected: boolean; label: string } {
+  if (platform === "instagram") {
+    const ok = !!metaStatus?.connected && !!metaStatus?.ig_username;
+    return { connected: ok, label: ok ? `@${metaStatus!.ig_username}` : "Not connected" };
+  }
+  if (platform === "facebook") {
+    const ok = !!metaStatus?.connected && !!metaStatus?.page_name;
+    return { connected: ok, label: ok ? metaStatus!.page_name! : "Not connected" };
+  }
+  if (platform === "linkedin") return { connected: false, label: "Not configured" };
+  if (platform === "blog")     return { connected: false, label: "WordPress" };
+  return { connected: false, label: "Manual" };
+}
+
+// ── Post detail modal ─────────────────────────────────────────────────────────
 
 function PostModal({ post, open, onClose, onSaved }: {
   post: PostSlot; open: boolean; onClose: () => void; onSaved: (u: Partial<PostSlot>) => void;
 }) {
+  const toLocalDatetime = (iso: string | null) =>
+    iso ? fmt(new Date(iso), "yyyy-MM-dd'T'HH:mm") : "";
+
   const [copy,        setCopy]        = useState(post.copy ?? "");
   const [note,        setNote]        = useState((post.metadata_json?.personal_note as string) ?? "");
   const [imageUrl,    setImageUrl]    = useState(post.visual_url ?? "");
   const [aiPrompt,    setAiPrompt]    = useState("");
+  const [scheduledAt, setScheduledAt] = useState(toLocalDatetime(post.scheduled_at));
   const [savingCopy,  setSavingCopy]  = useState(false);
   const [savingNote,  setSavingNote]  = useState(false);
   const [rewriting,   setRewriting]   = useState(false);
   const [uploading,   setUploading]   = useState(false);
+  const [scheduling,  setScheduling]  = useState(false);
   const [dragOver,    setDragOver]    = useState(false);
 
   const token = typeof window !== "undefined"
     ? (localStorage.getItem("hexa_token") ?? localStorage.getItem("hexa_portal_token"))
     : null;
+
+  const { data: metaStatus } = useQuery<{ connected: boolean; page_name?: string | null; ig_username?: string | null }>({
+    queryKey: ["meta-status"],
+    queryFn:  () => apiClient.get("/social/meta/status"),
+    staleTime: 60_000,
+  });
 
   async function handleSaveCopy() {
     setSavingCopy(true);
@@ -117,6 +149,39 @@ function PostModal({ post, open, onClose, onSaved }: {
     finally { setRewriting(false); }
   }
 
+  async function handleSchedule() {
+    if (!scheduledAt) { toast.error("Pick a date and time first"); return; }
+    setScheduling(true);
+    try {
+      const iso = new Date(scheduledAt).toISOString();
+      await apiClient.patch(`/posts/${post.id}`, { scheduled_at: iso, status: "scheduled" });
+      toast.success("Post scheduled");
+      onSaved({ scheduled_at: iso, status: "scheduled" });
+    } catch { toast.error("Scheduling failed"); }
+    finally { setScheduling(false); }
+  }
+
+  async function handlePublishNow() {
+    setScheduling(true);
+    try {
+      const iso = new Date().toISOString();
+      await apiClient.patch(`/posts/${post.id}`, { scheduled_at: iso, status: "scheduled" });
+      toast.success("Queued for immediate publish — fires within 1 minute");
+      onSaved({ scheduled_at: iso, status: "scheduled" });
+    } catch { toast.error("Failed"); }
+    finally { setScheduling(false); }
+  }
+
+  async function handleUnschedule() {
+    setScheduling(true);
+    try {
+      await apiClient.patch(`/posts/${post.id}`, { status: "approved" });
+      toast.success("Unscheduled");
+      onSaved({ status: "approved" });
+    } catch { toast.error("Failed"); }
+    finally { setScheduling(false); }
+  }
+
   async function handleImageUpload(file: File) {
     const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
     if (!allowed.includes(file.type)) { toast.error("Use JPEG, PNG, GIF or WebP"); return; }
@@ -142,125 +207,182 @@ function PostModal({ post, open, onClose, onSaved }: {
     finally { setUploading(false); }
   }
 
+  const { connected: platformConnected, label: platformLabel } =
+    platformConnectionLabel(post.platform, metaStatus);
+
+  const isScheduled = post.status === "scheduled";
+  const canSchedule = post.approval_status === "approved";
+
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0">
-        {/* Notion-style header */}
-        <div className="px-8 pt-8 pb-4 border-b">
-          <div className="flex items-center gap-2 mb-3">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden p-0 flex flex-col">
+
+        {/* Header */}
+        <div className="px-8 pt-6 pb-4 border-b flex-shrink-0">
+          <div className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[post.platform] ?? "#64748b" }} />
             <span className="text-sm font-medium capitalize text-muted-foreground">{post.platform.replace("_", " ")}</span>
             <Badge variant={post.approval_status === "approved" ? "default" : post.approval_status === "rejected" ? "destructive" : "secondary"} className="text-xs">
               {post.approval_status}
             </Badge>
-            <button onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground transition-colors">✕</button>
-          </div>
-          <div className="flex items-center gap-4">
-            {post.scheduled_at && (
-              <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                📅 {fmt(new Date(post.scheduled_at), "EEEE, MMMM d yyyy 'at' h:mm a")}
-              </p>
-            )}
+            {isScheduled && <Badge className="text-xs bg-blue-500 hover:bg-blue-500">scheduled</Badge>}
             {(post as any).campaignName && (
-              <p className="text-xs text-muted-foreground">📁 {(post as any).campaignName}</p>
+              <span className="text-xs text-muted-foreground ml-1">📁 {(post as any).campaignName}</span>
             )}
-            {!(post as any).campaignName && (
-              <p className="text-xs text-muted-foreground">📁 Standalone</p>
-            )}
+            <button onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground transition-colors">✕</button>
           </div>
         </div>
 
-        <div className="px-8 py-6 space-y-8">
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
 
-          {/* ── Image upload ── */}
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Image</p>
-            {imageUrl ? (
-              <div className="relative group">
-                <img src={imageUrl} alt="Post visual" className="w-full max-h-64 object-cover rounded-lg border" />
-                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-3">
-                  <label className="cursor-pointer bg-white text-black text-xs font-medium px-3 py-1.5 rounded-md">
-                    Replace
-                    <input type="file" accept="image/*" className="hidden"
-                      onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])} />
-                  </label>
-                  <button onClick={() => { setImageUrl(""); apiClient.patch(`/posts/${post.id}`, { visual_url: null } as any); }}
-                    className="bg-white text-black text-xs font-medium px-3 py-1.5 rounded-md">
-                    Remove
-                  </button>
+          {/* Left — content */}
+          <div className="flex-1 overflow-y-auto px-8 py-6 space-y-8">
+
+            {/* Image upload */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Image</p>
+              {imageUrl ? (
+                <div className="relative group">
+                  <img src={imageUrl} alt="Post visual" className="w-full max-h-64 object-cover rounded-lg border" />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-3">
+                    <label className="cursor-pointer bg-white text-black text-xs font-medium px-3 py-1.5 rounded-md">
+                      Replace
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])} />
+                    </label>
+                    <button onClick={() => { setImageUrl(""); apiClient.patch(`/posts/${post.id}`, { visual_url: null } as any); }}
+                      className="bg-white text-black text-xs font-medium px-3 py-1.5 rounded-md">Remove</button>
+                  </div>
                 </div>
+              ) : (
+                <label
+                  className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-8 cursor-pointer transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"}`}
+                  onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleImageUpload(f); }}
+                >
+                  <input type="file" accept="image/*" className="hidden"
+                    onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])} />
+                  {uploading
+                    ? <><Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" /><p className="text-sm text-muted-foreground">Uploading…</p></>
+                    : <><div className="text-2xl mb-2">🖼️</div><p className="text-sm text-muted-foreground">Drop image here or click to upload</p><p className="text-xs text-muted-foreground mt-1">JPEG, PNG, GIF, WebP</p></>}
+                </label>
+              )}
+            </div>
+
+            {/* Copy */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Post copy</p>
+              <Textarea rows={10} value={copy} onChange={(e) => setCopy(e.target.value)}
+                className="text-sm leading-relaxed resize-y border-0 bg-muted/30 focus-visible:ring-1 rounded-lg p-4"
+                placeholder="Start writing your post…" />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">{copy.length} chars</span>
+                <Button size="sm" onClick={handleSaveCopy} disabled={savingCopy} className="gap-1.5">
+                  {savingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+                </Button>
               </div>
-            ) : (
-              <label
-                className={`flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-8 cursor-pointer transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"}`}
-                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) handleImageUpload(f); }}
+            </div>
+
+            {/* AI rewrite */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                <Wand2 className="h-3.5 w-3.5" /> Modify with AI
+              </p>
+              <div className="flex gap-2">
+                <Input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
+                  placeholder="e.g. Add 3 hashtags, make it shorter, add a CTA…" className="text-sm"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAiRewrite(); }} />
+                <Button size="sm" onClick={handleAiRewrite} disabled={rewriting || !aiPrompt.trim()}>
+                  {rewriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Rewrite"}
+                </Button>
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" /> Notes
+              </p>
+              <Textarea rows={4} value={note} onChange={(e) => setNote(e.target.value)}
+                placeholder="Private notes — only visible to you…"
+                className="text-sm leading-relaxed resize-y border-0 bg-muted/30 focus-visible:ring-1 rounded-lg p-4" />
+              <div className="flex justify-end">
+                <Button size="sm" variant="outline" onClick={handleSaveNote} disabled={savingNote} className="gap-1.5">
+                  {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save note
+                </Button>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Right — scheduling panel */}
+          <div className="w-64 border-l flex-shrink-0 bg-muted/10 overflow-y-auto p-5 space-y-6">
+
+            {/* Posting on */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Posting on</p>
+              <Input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="text-xs"
+              />
+            </div>
+
+            <Separator />
+
+            {/* Posting to */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Posting to</p>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: PLATFORM_COLORS[post.platform] ?? "#64748b" }} />
+                  <span className="text-sm capitalize">{post.platform.replace("_", " ")}</span>
+                </div>
+                <span className={`text-xs font-medium ${platformConnected ? "text-green-600" : "text-muted-foreground"}`}>
+                  {platformConnected ? "✓" : "✗"}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">{platformLabel}</p>
+              {!platformConnected && PLATFORM_META.includes(post.platform) && (
+                <p className="text-xs text-amber-600">Connect via Settings → Social Accounts</p>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Actions */}
+            <div className="space-y-2">
+              {!canSchedule && (
+                <p className="text-xs text-muted-foreground text-center pb-1">Post must be approved before scheduling</p>
+              )}
+              <Button
+                className="w-full gap-1.5" size="sm"
+                onClick={handleSchedule}
+                disabled={scheduling || !scheduledAt || !canSchedule}
               >
-                <input type="file" accept="image/*" className="hidden"
-                  onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])} />
-                {uploading ? (
-                  <><Loader2 className="h-6 w-6 animate-spin text-muted-foreground mb-2" /><p className="text-sm text-muted-foreground">Uploading…</p></>
-                ) : (
-                  <><div className="text-2xl mb-2">🖼️</div><p className="text-sm text-muted-foreground">Drop image here or click to upload</p><p className="text-xs text-muted-foreground mt-1">JPEG, PNG, GIF, WebP</p></>
-                )}
-              </label>
-            )}
-          </div>
-
-          {/* ── Copy ── */}
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Post copy</p>
-            <Textarea
-              rows={10}
-              value={copy}
-              onChange={(e) => setCopy(e.target.value)}
-              className="text-sm leading-relaxed resize-y border-0 bg-muted/30 focus-visible:ring-1 rounded-lg p-4"
-              placeholder="Start writing your post…"
-            />
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">{copy.length} chars</span>
-              <Button size="sm" onClick={handleSaveCopy} disabled={savingCopy} className="gap-1.5">
-                {savingCopy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
+                {scheduling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarDays className="h-3.5 w-3.5" />}
+                {isScheduled ? "Reschedule" : "Schedule"}
               </Button>
-            </div>
-          </div>
-
-          {/* ── AI rewrite ── */}
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-              <Wand2 className="h-3.5 w-3.5" /> Modify with AI
-            </p>
-            <div className="flex gap-2">
-              <Input value={aiPrompt} onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="e.g. Add 3 hashtags, make it shorter, add a CTA…"
-                className="text-sm"
-                onKeyDown={(e) => { if (e.key === "Enter") handleAiRewrite(); }} />
-              <Button size="sm" onClick={handleAiRewrite} disabled={rewriting || !aiPrompt.trim()}>
-                {rewriting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Rewrite"}
+              <Button
+                variant="outline" className="w-full" size="sm"
+                onClick={handlePublishNow}
+                disabled={scheduling || !canSchedule}
+              >
+                Publish now
               </Button>
+              {isScheduled && (
+                <Button variant="ghost" className="w-full text-muted-foreground text-xs" size="sm"
+                  onClick={handleUnschedule} disabled={scheduling}>
+                  Unschedule
+                </Button>
+              )}
             </div>
-          </div>
 
-          {/* ── Personal notes ── */}
-          <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
-              <MessageSquare className="h-3.5 w-3.5" /> Notes
-            </p>
-            <Textarea
-              rows={4}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Private notes — only visible to you…"
-              className="text-sm leading-relaxed resize-y border-0 bg-muted/30 focus-visible:ring-1 rounded-lg p-4"
-            />
-            <div className="flex justify-end">
-              <Button size="sm" variant="outline" onClick={handleSaveNote} disabled={savingNote} className="gap-1.5">
-                {savingNote ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save note
-              </Button>
-            </div>
           </div>
-
         </div>
       </DialogContent>
     </Dialog>
