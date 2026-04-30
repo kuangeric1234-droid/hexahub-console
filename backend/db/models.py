@@ -250,3 +250,18 @@ class SensitiveWord(Base):
     severity   = Column(Enum(WordSeverity), nullable=False, default=WordSeverity.medium)
     category   = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class SocialConnection(Base):
+    """Stores OAuth-connected social account credentials (single account per provider)."""
+    __tablename__ = "social_connections"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    provider          = Column(String(50), nullable=False, unique=True)  # e.g. "meta"
+    page_id           = Column(String(255), nullable=True)               # Facebook Page ID
+    page_name         = Column(String(255), nullable=True)               # display name
+    page_access_token = Column(Text, nullable=False)                     # long-lived Page token
+    ig_user_id        = Column(String(255), nullable=True)               # Instagram Business Account ID
+    ig_username       = Column(String(255), nullable=True)               # Instagram handle
+    connected_at      = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at        = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -27,6 +27,7 @@ from backend.agents.base import BaseAgent
 from backend.agents.schemas.copy import CopyInput, CopyOutput
 from backend.db.models import Platform
 from backend.prompts import load_prompt
+from backend.utils.utm import inject_utm
 
 _BRAND_CONTEXT_PATH = Path(__file__).parent.parent.parent / "prompts" / "brand_context.md"
 
@@ -90,7 +91,7 @@ class BaseCopyAgent(BaseAgent[CopyInput, CopyOutput]):
 
     def _parse_output(self, content: str, inp: CopyInput) -> CopyOutput:
         """Base implementation — subclasses override for platform-specific parsing."""
-        copy       = content.strip()
+        copy       = inject_utm(content.strip(), inp.platform, inp.campaign_id, inp.post_id)
         char_count = len(copy)
         word_count = len(copy.split())
         warnings   = self._limit_warnings(char_count, word_count)
