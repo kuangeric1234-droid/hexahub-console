@@ -358,7 +358,7 @@ async def generate_image(
     if not generated_url:
         raise HTTPException(502, "DALL-E 3 returned no image URL")
 
-    # ── Step 4: download generated image + upload to MinIO ───────────────────
+    # ── Step 4: download generated image + upload to MinIO (fallback to DALL-E URL) ──
     async with httpx.AsyncClient(timeout=60) as client:
         img_dl = await client.get(generated_url)
         img_dl.raise_for_status()
@@ -380,10 +380,12 @@ async def generate_image(
             Body=img_bytes,
             ContentType="image/png",
         )
+        final_url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
+        log.info("image_generated", asset_id=str(asset_id), platform=body.platform, storage="minio")
     except Exception as exc:
-        raise HTTPException(502, f"Storage upload failed: {exc}")
+        # MinIO not running — return the DALL-E URL directly (valid ~1 hour)
+        log.warning("minio_unavailable_using_dalle_url", error=str(exc))
+        final_url = generated_url
 
-    minio_url = f"{settings.AWS_ENDPOINT_URL}/{settings.S3_BUCKET_NAME}/{key}"
-    log.info("image_generated", asset_id=str(asset_id), platform=body.platform, prompt=dalle_prompt[:80])
-
-    return GenerateImageResponse(image_url=minio_url, prompt_used=dalle_prompt)
+    log.info("image_generated_done", platform=body.platform, prompt=dalle_prompt[:80])
+    return GenerateImageResponse(image_url=final_url, prompt_used=dalle_prompt)
