@@ -98,6 +98,23 @@ async def _publish_post(post: Post, db: AsyncSession, meta_creds: Optional[_Meta
             access_token=meta_creds.page_access_token,
             ig_user_id=meta_creds.ig_user_id,
         )
+        # Cross-post to Facebook automatically if page_id is available
+        if result.success and meta_creds.page_id:
+            fb_result = await FacebookPublisher(
+                copy=post.copy or "",
+                visual_url=post.visual_url,
+                access_token=meta_creds.page_access_token,
+                page_id=meta_creds.page_id,
+            )
+            meta = dict(post.metadata_json or {})
+            if fb_result.success:
+                meta["facebook_post_id"]  = fb_result.platform_post_id
+                meta["facebook_post_url"] = fb_result.post_url
+                log.info("scheduler_facebook_crosspost", post_id=str(post.id), fb_post_id=fb_result.platform_post_id)
+            else:
+                meta["facebook_crosspost_error"] = fb_result.error
+                log.warning("scheduler_facebook_crosspost_failed", post_id=str(post.id), error=fb_result.error)
+            post.metadata_json = meta
     elif platform == Platform.facebook:
         if not meta_creds or not meta_creds.page_id:
             log.error(
