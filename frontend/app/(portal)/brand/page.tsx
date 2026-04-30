@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Save, Loader2, BookOpen, Sparkles, Copy, Check, Upload, ScanLine, Plus, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -168,7 +169,10 @@ type TabId = typeof TABS[number]["id"];
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function BrandKitPage() {
-  const [tab,     setTab]     = useState<TabId>("colours");
+  const searchParams = useSearchParams();
+  const [tab,     setTab]     = useState<TabId>(() =>
+    searchParams.get("scanner") ? "scanner" : "colours"
+  );
   const [content, setContent] = useState("");
   const [dirty,   setDirty]   = useState(false);
   const [copied,  setCopied]  = useState(false);
@@ -520,6 +524,8 @@ export default function BrandKitPage() {
 const SCAN_PLATFORMS = ["LinkedIn", "Instagram", "Facebook", "Xiaohongshu", "WeChat Moments", "Blog"];
 
 function ScannerTab() {
+  const searchParams   = useSearchParams();
+  const router         = useRouter();
   const [samples,    setSamples]    = useState<{ platform: string; posts: string[] }[]>(
     SCAN_PLATFORMS.map(p => ({ platform: p.toLowerCase().replace(" ", "_"), posts: [""] }))
   );
@@ -528,11 +534,67 @@ function ScannerTab() {
   const [dna,        setDna]        = useState("");
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [metaAccount, setMetaAccount] = useState<string | null>(null);
 
   useEffect(() => {
     apiClient.get<{ content: string; exists: boolean }>("/brand/dna")
       .then((r) => { if (r.exists) setDna(r.content); })
       .catch(() => {});
+  }, []);
+
+  // Auto-populate from Meta OAuth callback
+  useEffect(() => {
+    if (searchParams.get("scanner") !== "meta") return;
+    const raw = localStorage.getItem("meta_fetched_posts");
+    const name = localStorage.getItem("meta_account_name");
+    if (!raw) return;
+    try {
+      const posts: { platform: string; text: string }[] = JSON.parse(raw);
+      localStorage.removeItem("meta_fetched_posts");
+      localStorage.removeItem("meta_account_name");
+      if (name) setMetaAccount(name);
+
+      setSamples(prev => {
+        const next = prev.map(s => ({ ...s }));
+        for (const p of posts) {
+          const idx = next.findIndex(s => s.platform === p.platform);
+          if (idx === -1) continue;
+          const current = next[idx].posts;
+          if (current.length === 1 && !current[0].trim()) {
+            next[idx].posts = [p.text];
+          } else {
+            next[idx].posts = [...current, p.text];
+          }
+        }
+        return next;
+      });
+
+      const hasFacebook  = posts.some(p => p.platform === "facebook");
+      const hasInstagram = posts.some(p => p.platform === "instagram");
+      if (hasInstagram) setActivePlat(SCAN_PLATFORMS.indexOf("Instagram"));
+      else if (hasFacebook) setActivePlat(SCAN_PLATFORMS.indexOf("Facebook"));
+
+      toast.success(`Imported ${posts.length} posts from Meta`);
+      router.replace("/brand?tab=scanner", { scroll: false });
+    } catch { /* malformed JSON, ignore */ }
+  }, [searchParams, router]);
+
+  const handleConnectMeta = useCallback(async () => {
+    setConnecting(true);
+    try {
+      const state       = crypto.randomUUID();
+      const redirectUri = `${window.location.origin}/auth/meta/callback`;
+      localStorage.setItem("meta_oauth_state", state);
+      const data = await apiClient.get<{ url: string }>(
+        `/social/meta/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`
+      );
+      window.location.href = data.url;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to get Meta auth URL";
+      toast.error(message);
+      setConnecting(false);
+    }
   }, []);
 
   function updatePost(platIdx: number, postIdx: number, value: string) {
@@ -587,6 +649,30 @@ function ScannerTab() {
           <p className="text-xs text-muted-foreground mt-0.5">
             Add posts from each platform. Claude will analyse your voice, themes and style.
           </p>
+        </div>
+
+        {/* Connect button */}
+        <div className="rounded-lg border border-dashed border-border p-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-medium">
+              {metaAccount ? `Connected: ${metaAccount}` : "Import from Meta"}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+              {metaAccount
+                ? "Posts imported — edit below or re-connect to refresh"
+                : "Log in with Facebook to auto-import Instagram & Facebook posts"}
+            </p>
+          </div>
+          <Button size="sm" variant="outline" className="shrink-0 gap-1.5"
+            onClick={handleConnectMeta} disabled={connecting}>
+            {connecting
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                </svg>
+            }
+            {connecting ? "Connecting…" : metaAccount ? "Re-connect" : "Connect with Meta"}
+          </Button>
         </div>
 
         {/* Platform tabs */}

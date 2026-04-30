@@ -58,6 +58,17 @@ class Settings(BaseSettings):
     # Public URL (used to build image URLs for uploaded files)
     PUBLIC_BACKEND_URL: str = "http://localhost:8000"
 
+    # Frontend URL (used for OAuth redirect URIs)
+    FRONTEND_URL: str = "https://hexahub-console.vercel.app"
+
+    # Meta (Facebook / Instagram) OAuth app credentials
+    META_APP_ID:     str = ""
+    META_APP_SECRET: str = ""
+
+    # LinkedIn OAuth app credentials
+    LINKEDIN_CLIENT_ID:     str = ""
+    LINKEDIN_CLIENT_SECRET: str = ""
+
     # App
     DEBUG:        bool = False
     DOCS_ENABLED: bool = True
