@@ -82,14 +82,15 @@ interface DriveFilesResponse {
   files: DriveFile[]; next_page_token: string | null;
 }
 
-function GenerateImageDialog({ open, onClose, platform, onUseImage }: {
+function GenerateImageDialog({ open, onClose, platform, postCopy, onUseImage }: {
   open: boolean; onClose: () => void;
-  platform: string; onUseImage: (url: string) => void;
+  platform: string; postCopy?: string; onUseImage: (url: string) => void;
 }) {
   const [folderStack,   setFolderStack]   = useState<{ id: string; name: string }[]>([]);
   const [selectedFile,  setSelectedFile]  = useState<DriveFile | null>(null);
   const [instructions,  setInstructions]  = useState("");
   const [generating,    setGenerating]    = useState(false);
+  const [autofilling,   setAutofilling]   = useState(false);
   const [generatedUrl,  setGeneratedUrl]  = useState<string | null>(null);
   const [promptUsed,    setPromptUsed]    = useState("");
 
@@ -104,6 +105,32 @@ function GenerateImageDialog({ open, onClose, platform, onUseImage }: {
     },
     staleTime: 60_000,
   });
+
+  async function handleAutofill() {
+    if (!postCopy?.trim()) { toast.error("Post has no copy to read"); return; }
+    setAutofilling(true);
+    try {
+      const result = await apiClient.post<{
+        drive_file_id: string | null; drive_file_name: string | null;
+        thumbnail_url: string | null; instructions: string;
+      }>("/create/autofill-image", { post_copy: postCopy, platform });
+      setInstructions(result.instructions);
+      if (result.drive_file_id) {
+        setSelectedFile({
+          id: result.drive_file_id, name: result.drive_file_name ?? "Selected image",
+          mimeType: "image/jpeg", size: null, is_folder: false,
+          thumbnail_url: result.thumbnail_url,
+        });
+        toast.success(`Auto-selected: ${result.drive_file_name}`);
+      } else {
+        toast.success("Instructions generated — no matching Drive image found");
+      }
+    } catch (e: any) {
+      toast.error(e.message ?? "Autofill failed");
+    } finally {
+      setAutofilling(false);
+    }
+  }
 
   async function handleGenerate() {
     if (!instructions.trim() && !selectedFile) {
@@ -201,6 +228,19 @@ function GenerateImageDialog({ open, onClose, platform, onUseImage }: {
           {/* Right — instructions + preview */}
           <div className="flex-1 flex flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+              {postCopy && (
+                <Button
+                  className="w-full gap-2 bg-purple-600 hover:bg-purple-700"
+                  size="sm"
+                  onClick={handleAutofill}
+                  disabled={autofilling || generating}
+                >
+                  {autofilling
+                    ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Reading post…</>
+                    : <><Sparkles className="h-3.5 w-3.5" /> Auto-fill from post copy</>}
+                </Button>
+              )}
 
               <div className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Instructions</p>
@@ -637,6 +677,7 @@ function PostModal({ post, open, onClose, onSaved }: {
         open={genImgOpen}
         onClose={() => setGenImgOpen(false)}
         platform={post.platform}
+        postCopy={copy}
         onUseImage={(url) => {
           setImageUrl(url);
           apiClient.patch(`/posts/${post.id}`, { visual_url: url });

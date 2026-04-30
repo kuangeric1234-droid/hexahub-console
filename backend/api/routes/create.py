@@ -389,3 +389,107 @@ async def generate_image(
 
     log.info("image_generated_done", platform=body.platform, prompt=dalle_prompt[:80])
     return GenerateImageResponse(image_url=final_url, prompt_used=dalle_prompt)
+
+
+# ── POST /create/autofill-image ───────────────────────────────────────────────
+
+_AUTOFILL_SYSTEM = """You are a creative director for Hexa Hub, a Melbourne business infrastructure platform.
+
+Given a social media post caption and a list of available image filenames, you must:
+1. Pick the SINGLE most relevant filename for this post's visual (or null if none fit)
+2. Write detailed DALL-E 3 instructions to generate the ideal image for this post
+
+Brand aesthetics: clean, operational, confident, modern Melbourne warehouse/logistics facility.
+Huntingdale location, Australia Post partnerships, cross-border e-commerce brands.
+
+Respond ONLY with valid JSON — no preamble, no explanation:
+{
+  "selected_file_name": "<exact filename from the list, or null>",
+  "instructions": "<detailed DALL-E 3 instructions, 2-4 sentences>"
+}"""
+
+
+class AutofillImageRequest(BaseModel):
+    post_copy: str
+    platform:  str = "instagram"
+
+
+class AutofillImageResponse(BaseModel):
+    drive_file_id:   Optional[str] = None
+    drive_file_name: Optional[str] = None
+    thumbnail_url:   Optional[str] = None
+    instructions:    str
+
+
+@router.post("/autofill-image", response_model=AutofillImageResponse,
+             summary="Auto-pick Drive image + write DALL-E instructions from post copy")
+async def autofill_image(
+    body: AutofillImageRequest,
+    _:    User = Depends(get_current_user),
+) -> AutofillImageResponse:
+    if not settings.OPENAI_API_KEY:
+        raise HTTPException(503, "OPENAI_API_KEY not configured")
+    if not settings.GOOGLE_DRIVE_API_KEY or not settings.GOOGLE_DRIVE_FOLDER_ID:
+        raise HTTPException(503, "Google Drive not configured")
+
+    import httpx as _httpx
+    from openai import AsyncOpenAI
+    from backend.utils.json_utils import extract_json
+
+    # ── Fetch Drive file list ─────────────────────────────────────────────────
+    params = {
+        "q":        f"'{settings.GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+        "key":      settings.GOOGLE_DRIVE_API_KEY,
+        "fields":   "files(id,name,mimeType)",
+        "pageSize": 100,
+        "orderBy":  "modifiedTime desc",
+    }
+    async with _httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get("https://www.googleapis.com/drive/v3/files", params=params)
+
+    if resp.status_code != 200:
+        raise HTTPException(502, f"Drive API error: {resp.text[:200]}")
+
+    all_files = resp.json().get("files", [])
+    # Only include image files for selection
+    image_files = [f for f in all_files if f["mimeType"].startswith("image/")]
+    file_list   = "\n".join(f["name"] for f in image_files) or "No images found"
+
+    # ── Ask GPT-4 to pick best match + write instructions ─────────────────────
+    openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+    chat = await openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": _AUTOFILL_SYSTEM},
+            {"role": "user",   "content": (
+                f"Post copy:\n{body.post_copy}\n\n"
+                f"Platform: {body.platform}\n\n"
+                f"Available image files:\n{file_list}\n\n"
+                "Pick the best file and write the DALL-E instructions."
+            )},
+        ],
+        max_tokens=300,
+        temperature=0.4,
+    )
+
+    raw = extract_json(chat.choices[0].message.content or "{}")
+
+    selected_name: Optional[str] = raw.get("selected_file_name")
+    instructions:  str           = raw.get("instructions", body.post_copy[:200])
+
+    # Find matching file ID
+    selected_id:   Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    if selected_name:
+        match = next((f for f in image_files if f["name"] == selected_name), None)
+        if match:
+            selected_id   = match["id"]
+            thumbnail_url = f"https://drive.google.com/thumbnail?id={selected_id}&sz=w320"
+
+    log.info("autofill_image", platform=body.platform, selected=selected_name)
+    return AutofillImageResponse(
+        drive_file_id=selected_id,
+        drive_file_name=selected_name,
+        thumbnail_url=thumbnail_url,
+        instructions=instructions,
+    )
