@@ -98,7 +98,7 @@ function GenerateImageDialog({ open, onClose, platform, onUseImage }: {
   const { data: driveData, isLoading: driveLoading } = useQuery<DriveFilesResponse>({
     queryKey: ["drive-picker", currentFolderId],
     queryFn: () => {
-      const params = new URLSearchParams({ page_size: "30", type: "image" });
+      const params = new URLSearchParams({ page_size: "50" });
       if (currentFolderId) params.set("folder_id", currentFolderId);
       return apiClient.get<DriveFilesResponse>(`/drive/files?${params}`);
     },
