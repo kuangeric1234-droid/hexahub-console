@@ -32,7 +32,9 @@ limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from backend.services.scheduler import scheduler, publish_due_posts
-    scheduler.add_job(publish_due_posts, "interval", minutes=1, id="publish_scheduler", replace_existing=True)
+    from backend.services.meta_ads  import sync_all_ad_metrics
+    scheduler.add_job(publish_due_posts,    "interval", minutes=1, id="publish_scheduler",  replace_existing=True)
+    scheduler.add_job(sync_all_ad_metrics,  "cron", hour=6, minute=0, id="meta_ads_daily_sync", replace_existing=True)
     scheduler.start()
     log.info("startup", version=__version__, debug=settings.DEBUG)
     yield
@@ -69,6 +71,7 @@ app = FastAPI(
         {"name": "logs",        "description": "Agent execution logs (admin only)"},
         {"name": "webhooks",    "description": "External system callbacks (shared secret)"},
         {"name": "tools",       "description": "Repurpose and utility endpoints"},
+        {"name": "ads",         "description": "Meta Ads campaign management"},
         {"name": "meta",        "description": "Health check"},
     ],
 )

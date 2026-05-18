@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import {
   Home, CalendarDays, Megaphone, Palette, Linkedin, BookOpen, Instagram,
   Flower2, MessageCircle, Tv2, CheckSquare, Send, Package, Plug, BarChart2,
-  Image, Shield, Users, ActivitySquare, Zap, ChevronDown, ChevronRight,
+  Image, Shield, Users, ActivitySquare, Zap, ChevronDown, ChevronRight, Target,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/lib/stores/ui";
@@ -53,7 +53,10 @@ const NAV: NavSection[] = [
   },
   {
     label: "MEASURE",
-    items: [{ href: "/insights", label: "Insights", icon: BarChart2 }],
+    items: [
+      { href: "/insights", label: "Insights",  icon: BarChart2 },
+      { href: "/ads",      label: "Meta Ads",  icon: Target    },
+    ],
   },
   {
     label: "ASSETS",

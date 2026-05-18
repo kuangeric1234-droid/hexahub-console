@@ -62,8 +62,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "https://hexahub-console.vercel.app"
 
     # Meta (Facebook / Instagram) OAuth app credentials
-    META_APP_ID:     str = ""
-    META_APP_SECRET: str = ""
+    META_APP_ID:        str = ""
+    META_APP_SECRET:    str = ""
+    # Meta Ads — ad account ID in format act_XXXXXXXXXX (from Meta Business Manager)
+    META_AD_ACCOUNT_ID: str = ""
 
     # LinkedIn OAuth app credentials
     LINKEDIN_CLIENT_ID:     str = ""

@@ -214,6 +214,43 @@ export interface SkillList {
   custom:   string[];
 }
 
+// ── Meta Ads ──────────────────────────────────────────────────────────────────
+
+export interface AdCampaign {
+  id:                string;
+  campaign_id:       string | null;
+  meta_campaign_id:  string;
+  meta_adset_id:     string | null;
+  meta_ad_id:        string | null;
+  status:            "PAUSED" | "ACTIVE" | "ARCHIVED" | "DELETED" | string;
+  daily_budget:      number | null;
+  daily_budget_aud:  number | null;
+  objective:         string | null;
+  targeting_summary: string | null;
+  synced_at:         string | null;
+  created_at:        string | null;
+  updated_at:        string | null;
+}
+
+export interface CreateAdCampaignRequest {
+  name:                string;
+  daily_budget_aud:    number;
+  targeting_location:  string;
+  targeting_interests: string;
+  campaign_id?:        string;
+}
+
+export interface AdInsights {
+  meta_campaign_id: string;
+  reach:            number;
+  impressions:      number;
+  clicks:           number;
+  ctr:              number;
+  spend_aud:        number;
+  leads:            number;
+  cpl_aud:          number;
+}
+
 // ── Pagination ────────────────────────────────────────────────────────────────
 
 export interface PaginationParams {

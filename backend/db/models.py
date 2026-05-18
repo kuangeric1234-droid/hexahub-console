@@ -117,6 +117,7 @@ class Campaign(Base):
     pillars          = relationship("ContentPillar", back_populates="campaign", cascade="all, delete-orphan")
     posts            = relationship("Post", back_populates="campaign", cascade="all, delete-orphan")
     ad_creative_runs = relationship("AdCreativeRun", back_populates="campaign")
+    ad_campaigns     = relationship("AdCampaign", back_populates="campaign")
 
 
 class ContentPillar(Base):
@@ -265,3 +266,27 @@ class SocialConnection(Base):
     ig_username       = Column(String(255), nullable=True)               # Instagram handle
     connected_at      = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at        = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AdCampaign(Base):
+    """
+    Maps a Hexa Hub content campaign to a Meta Ads campaign/adset/ad triple.
+    Always created with status PAUSED — never activated without explicit user action.
+    daily_budget stored in AUD cents (Meta's unit).
+    """
+    __tablename__ = "ad_campaigns"
+
+    id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    campaign_id       = Column(UUID(as_uuid=True), ForeignKey("campaigns.id", ondelete="SET NULL"), nullable=True)
+    meta_campaign_id  = Column(String(255), nullable=False, unique=True)
+    meta_adset_id     = Column(String(255), nullable=True)
+    meta_ad_id        = Column(String(255), nullable=True)
+    status            = Column(String(50),  nullable=False, default="PAUSED")
+    daily_budget      = Column(Integer,     nullable=True)   # AUD cents
+    objective         = Column(String(100), nullable=True)
+    targeting_summary = Column(Text,        nullable=True)
+    synced_at         = Column(DateTime(timezone=True), nullable=True)
+    created_at        = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at        = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    campaign = relationship("Campaign", back_populates="ad_campaigns")
