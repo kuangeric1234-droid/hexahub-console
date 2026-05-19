@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { CalendarDays, Plus, Save, Wand2, Loader2, MessageSquare, Sparkles, ImageOff, FolderOpen, ChevronLeft, CheckCircle2 } from "lucide-react";
+import { HandleInput } from "@/components/ui/handle-input";
 import { api } from "@/lib/api/client";
 import { apiClient } from "@/lib/api";
 import { Campaign, CampaignCalendar, PostSlot } from "@/lib/types";
@@ -671,15 +672,11 @@ function PostModal({ post, open, onClose, onSaved }: {
 
                   <div className="space-y-1">
                     <Label className="text-xs">Collab with</Label>
-                    <div className="relative">
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">@</span>
-                      <Input
-                        className="pl-6 text-xs h-8"
-                        placeholder="creatorhandle"
-                        value={collabHandle}
-                        onChange={(e) => setCollabHandle(e.target.value)}
-                      />
-                    </div>
+                    <HandleInput
+                      value={collabHandle}
+                      onChange={setCollabHandle}
+                      placeholder="creatorhandle"
+                    />
                     <p className="text-[10px] text-muted-foreground leading-tight">
                       Co-author invite — appears on both feeds once approved
                     </p>

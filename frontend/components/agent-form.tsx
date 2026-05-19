@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { HandleInput } from "@/components/ui/handle-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { apiClient } from "@/lib/api";
@@ -327,17 +328,13 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
                       Collab with
                       <span className="text-muted-foreground font-normal text-xs">(optional)</span>
                     </Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
-                      <Input
-                        className="pl-7"
-                        placeholder="creatorhandle"
-                        value={collaboratorHandle}
-                        onChange={(e) => setCollaboratorHandle(e.target.value)}
-                      />
-                    </div>
+                    <HandleInput
+                      value={collaboratorHandle}
+                      onChange={setCollaboratorHandle}
+                      placeholder="creatorhandle"
+                    />
                     <p className="text-xs text-muted-foreground">
-                      Instagram username of the collaborator. They'll get an invite to approve — post appears on both feeds once accepted.
+                      They'll get an invite to approve — post appears on both feeds once accepted.
                     </p>
                   </div>
 
