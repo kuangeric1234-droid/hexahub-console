@@ -16,6 +16,7 @@ from backend.api.routes.webhooks   import router as webhooks_router
 from backend.api.routes.create      import router as create_router
 from backend.api.routes.social_auth import router as social_router
 from backend.api.routes.ads_meta    import router as ads_meta_router
+from backend.api.routes.insights    import router as insights_router
 from backend.api.routes.drive      import router as drive_router
 
 # Repurpose endpoint from the existing tools module (preserved)
@@ -36,5 +37,6 @@ api_router.include_router(webhooks_router)
 api_router.include_router(create_router)
 api_router.include_router(social_router)
 api_router.include_router(ads_meta_router)
+api_router.include_router(insights_router)
 api_router.include_router(tools_router)   # /repurpose endpoint
 api_router.include_router(drive_router)
