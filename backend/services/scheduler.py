@@ -97,6 +97,7 @@ async def _publish_post(post: Post, db: AsyncSession, meta_creds: Optional[_Meta
             visual_url=post.visual_url,
             access_token=meta_creds.page_access_token,
             ig_user_id=meta_creds.ig_user_id,
+            collaborator_handle=(post.metadata_json or {}).get("collaborator_handle"),
         )
         # Cross-post to Facebook automatically if page_id is available
         if result.success and meta_creds.page_id:

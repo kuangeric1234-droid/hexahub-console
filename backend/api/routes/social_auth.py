@@ -81,13 +81,25 @@ class ConnectRequest(BaseModel):
 
 
 class ConnectResponse(BaseModel):
-    connected:   bool
-    page_name:   str | None = None
-    ig_username: str | None = None
+    connected:     bool
+    page_name:     str | None = None
+    ig_username:   str | None = None
+    account_label: str | None = None
+
+
+class ConnectionItem(BaseModel):
+    id:            str
+    account_label: str | None = None
+    page_name:     str | None = None
+    ig_username:   str | None = None
+    page_id:       str | None = None
+    connected_at:  datetime | None = None
 
 
 class StatusResponse(BaseModel):
     connected:    bool
+    accounts:     list[ConnectionItem] = []
+    # Legacy single-account fields (kept for backward compat)
     page_name:    str | None = None
     ig_username:  str | None = None
     connected_at: datetime | None = None
@@ -272,18 +284,37 @@ async def meta_connect(
         ig_user_id  = ig_account.get("id")
         ig_username = ig_account.get("username")
 
-    # Upsert — delete any existing Meta connection, insert fresh
-    await db.execute(delete(SocialConnection).where(SocialConnection.provider == _META_PROVIDER))
-    db.add(SocialConnection(
-        provider          = _META_PROVIDER,
-        page_id           = page_id,
-        page_name         = page_name,
-        page_access_token = page_access_token,
-        ig_user_id        = ig_user_id,
-        ig_username       = ig_username,
-        connected_at      = datetime.now(timezone.utc),
-        updated_at        = datetime.now(timezone.utc),
-    ))
+    # Upsert by (provider, page_id) — allows multiple pages to be connected
+    existing = await db.execute(
+        select(SocialConnection).where(
+            SocialConnection.provider == _META_PROVIDER,
+            SocialConnection.page_id  == page_id,
+        )
+    )
+    conn_row = existing.scalar_one_or_none()
+    account_label = page_name or f"Meta Account {page_id}"
+
+    if conn_row:
+        conn_row.page_name         = page_name
+        conn_row.page_access_token = page_access_token
+        conn_row.user_access_token = long_lived_token
+        conn_row.ig_user_id        = ig_user_id
+        conn_row.ig_username       = ig_username
+        conn_row.account_label     = account_label
+        conn_row.updated_at        = datetime.now(timezone.utc)
+    else:
+        db.add(SocialConnection(
+            provider          = _META_PROVIDER,
+            account_label     = account_label,
+            page_id           = page_id,
+            page_name         = page_name,
+            page_access_token = page_access_token,
+            user_access_token = long_lived_token,
+            ig_user_id        = ig_user_id,
+            ig_username       = ig_username,
+            connected_at      = datetime.now(timezone.utc),
+            updated_at        = datetime.now(timezone.utc),
+        ))
 
     log.info(
         "meta_connected",
@@ -292,34 +323,64 @@ async def meta_connect(
         ig_user_id=ig_user_id,
         ig_username=ig_username,
     )
-    return ConnectResponse(connected=True, page_name=page_name, ig_username=ig_username)
+    return ConnectResponse(
+        connected=True,
+        page_name=page_name,
+        ig_username=ig_username,
+        account_label=account_label,
+    )
 
 
 @router.get("/meta/status", response_model=StatusResponse,
-            summary="Check current Meta publishing connection status")
+            summary="Check current Meta publishing connection status (all accounts)")
 async def meta_status(
     db: AsyncSession = Depends(get_db),
     _:  User         = Depends(get_current_user),
 ) -> StatusResponse:
     result = await db.execute(
-        select(SocialConnection).where(SocialConnection.provider == _META_PROVIDER)
+        select(SocialConnection)
+        .where(SocialConnection.provider == _META_PROVIDER)
+        .order_by(SocialConnection.connected_at)
     )
-    conn = result.scalar_one_or_none()
-    if not conn:
-        return StatusResponse(connected=False)
+    conns = result.scalars().all()
+    if not conns:
+        return StatusResponse(connected=False, accounts=[])
+
+    accounts = [
+        ConnectionItem(
+            id            = str(c.id),
+            account_label = c.account_label or c.page_name,
+            page_name     = c.page_name,
+            ig_username   = c.ig_username,
+            page_id       = c.page_id,
+            connected_at  = c.connected_at,
+        )
+        for c in conns
+    ]
+    first = conns[0]
     return StatusResponse(
-        connected=True,
-        page_name=conn.page_name,
-        ig_username=conn.ig_username,
-        connected_at=conn.connected_at,
+        connected    = True,
+        accounts     = accounts,
+        page_name    = first.page_name,
+        ig_username  = first.ig_username,
+        connected_at = first.connected_at,
     )
 
 
-@router.delete("/meta/disconnect", summary="Remove Meta publishing connection")
+@router.delete("/meta/disconnect", summary="Remove a Meta publishing connection")
 async def meta_disconnect(
-    db: AsyncSession = Depends(get_db),
-    _:  User         = Depends(get_current_user),
+    connection_id: str | None = None,
+    db:            AsyncSession = Depends(get_db),
+    _:             User         = Depends(get_current_user),
 ) -> dict:
-    await db.execute(delete(SocialConnection).where(SocialConnection.provider == _META_PROVIDER))
-    log.info("meta_disconnected")
+    if connection_id:
+        import uuid as _uuid
+        await db.execute(
+            delete(SocialConnection).where(SocialConnection.id == _uuid.UUID(connection_id))
+        )
+        log.info("meta_account_disconnected", connection_id=connection_id)
+    else:
+        # Disconnect all Meta accounts (legacy behaviour)
+        await db.execute(delete(SocialConnection).where(SocialConnection.provider == _META_PROVIDER))
+        log.info("meta_all_disconnected")
     return {"disconnected": True}

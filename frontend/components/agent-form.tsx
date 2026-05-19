@@ -18,12 +18,13 @@ import { Campaign } from "@/lib/types";
 import { toast } from "sonner";
 
 export interface AgentFormConfig {
-  title:            string;
-  description:      string;
-  platform:         string;
-  briefLabel:       string;
-  briefPlaceholder: string;
-  badge?:           string;
+  title:             string;
+  description:       string;
+  platform:          string;
+  briefLabel:        string;
+  briefPlaceholder:  string;
+  badge?:            string;
+  showCollaborator?: boolean;  // Instagram collab posts
 }
 
 interface FormatRecommendation {
@@ -77,7 +78,8 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
   const [copied,       setCopied]       = useState(false);
   const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [dragOver,     setDragOver]     = useState(false);
+  const [dragOver,          setDragOver]          = useState(false);
+  const [collaboratorHandle, setCollaboratorHandle] = useState("");
   const fileInputRef   = useRef<HTMLInputElement>(null);
 
   // Save to campaign
@@ -208,10 +210,13 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
     setSaving(true);
     try {
       await apiClient.post("/posts", {
-        campaign_id:  campaignId,
-        platform:     platformKey,
-        copy:         result.copy,
-        status:       "draft",
+        campaign_id:   campaignId,
+        platform:      platformKey,
+        copy:          result.copy,
+        status:        "draft",
+        metadata_json: collaboratorHandle.trim()
+          ? { collaborator_handle: collaboratorHandle.trim().replace(/^@/, "") }
+          : {},
         ...(schedule ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
       });
       setSaved(true);
@@ -306,6 +311,31 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
                   onChange={(e) => { if (e.target.files?.[0]) handleFileSelect(e.target.files[0]); }}
                 />
               </div>
+
+              {/* Collaborator field — Instagram collab posts only */}
+              {config.showCollaborator && (
+                <>
+                  <Separator />
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1.5">
+                      Collab with
+                      <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">@</span>
+                      <Input
+                        className="pl-7"
+                        placeholder="creatorhandle"
+                        value={collaboratorHandle}
+                        onChange={(e) => setCollaboratorHandle(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Instagram username of the collaborator. They'll get an invite to approve — post appears on both feeds once accepted.
+                    </p>
+                  </div>
+                </>
+              )}
 
               <Button type="submit" className="w-full gap-2" disabled={loading || (!brief.trim() && !imageFile)}>
                 {loading

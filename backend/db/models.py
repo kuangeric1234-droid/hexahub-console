@@ -254,14 +254,19 @@ class SensitiveWord(Base):
 
 
 class SocialConnection(Base):
-    """Stores OAuth-connected social account credentials (single account per provider)."""
+    """
+    Stores OAuth-connected social account credentials.
+    Multiple accounts per provider are supported — unique on (provider, page_id).
+    """
     __tablename__ = "social_connections"
 
     id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    provider          = Column(String(50), nullable=False, unique=True)  # e.g. "meta"
+    provider          = Column(String(50),  nullable=False)              # e.g. "meta"
+    account_label     = Column(String(255), nullable=True)               # human display name
     page_id           = Column(String(255), nullable=True)               # Facebook Page ID
-    page_name         = Column(String(255), nullable=True)               # display name
-    page_access_token = Column(Text, nullable=False)                     # long-lived Page token
+    page_name         = Column(String(255), nullable=True)               # Page display name
+    page_access_token = Column(Text,        nullable=False)              # long-lived Page token
+    user_access_token = Column(Text,        nullable=True)               # long-lived user token (for Ads API)
     ig_user_id        = Column(String(255), nullable=True)               # Instagram Business Account ID
     ig_username       = Column(String(255), nullable=True)               # Instagram handle
     connected_at      = Column(DateTime(timezone=True), default=datetime.utcnow)

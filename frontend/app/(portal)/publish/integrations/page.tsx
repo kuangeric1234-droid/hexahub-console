@@ -10,8 +10,18 @@ import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+interface ConnectionItem {
+  id:            string;
+  account_label: string | null;
+  page_name:     string | null;
+  ig_username:   string | null;
+  page_id:       string | null;
+  connected_at:  string | null;
+}
+
 interface MetaStatus {
   connected:    boolean;
+  accounts:     ConnectionItem[];
   page_name:    string | null;
   ig_username:  string | null;
   connected_at: string | null;
@@ -82,7 +92,8 @@ export default function IntegrationsPage() {
   });
 
   const disconnect = useMutation({
-    mutationFn: () => apiClient.del("/social/meta/disconnect"),
+    mutationFn: (connectionId?: string) =>
+      apiClient.del(`/social/meta/disconnect${connectionId ? `?connection_id=${connectionId}` : ""}`),
     onSuccess:  () => {
       queryClient.invalidateQueries({ queryKey: ["meta-status"] });
       toast.success("Disconnected");
@@ -136,10 +147,7 @@ export default function IntegrationsPage() {
     }
   }
 
-  const metaDetail = metaStatus?.connected
-    ? [metaStatus.page_name, metaStatus.ig_username ? `@${metaStatus.ig_username}` : null]
-        .filter(Boolean).join(" · ")
-    : undefined;
+  const metaAccounts = metaStatus?.accounts ?? [];
 
   const redirectUri = typeof window !== "undefined"
     ? `${window.location.origin}/auth/meta/connect/callback`
@@ -158,20 +166,45 @@ export default function IntegrationsPage() {
       {/* Social Media */}
       <div className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Social Media</p>
+
         {isLoading ? (
           <div className="h-20 rounded-xl border bg-card animate-pulse" />
         ) : (
-          <IntegrationCard
-            logo="📘"
-            name="Meta — Instagram & Facebook"
-            description="Publish to your Instagram Business account and Facebook Page."
-            connected={!!metaStatus?.connected}
-            detail={metaDetail}
-            onConnect={handleMetaConnect}
-            onDisconnect={() => disconnect.mutate()}
-            connecting={connecting}
-          />
+          <div className="space-y-2">
+            {/* Connected accounts */}
+            {metaAccounts.map((account) => (
+              <IntegrationCard
+                key={account.id}
+                logo="📘"
+                name={account.account_label ?? account.page_name ?? "Meta Account"}
+                description="Instagram Business & Facebook Page"
+                connected
+                detail={[account.page_name, account.ig_username ? `@${account.ig_username}` : null].filter(Boolean).join(" · ")}
+                onDisconnect={() => disconnect.mutate(account.id)}
+              />
+            ))}
+
+            {/* Add account button */}
+            <div className="flex items-center gap-4 p-5 rounded-xl border border-dashed bg-card/50">
+              <div className="h-11 w-11 rounded-xl flex items-center justify-center flex-shrink-0 border bg-muted/30 text-xl">📘</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm">
+                  {metaAccounts.length > 0 ? "Connect another Meta account" : "Meta — Instagram & Facebook"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {metaAccounts.length > 0
+                    ? "Add a second Instagram/Facebook page for collab posts or multi-brand publishing"
+                    : "Publish to your Instagram Business account and Facebook Page"}
+                </p>
+              </div>
+              <Button size="sm" onClick={handleMetaConnect} disabled={connecting} className="gap-1.5 shrink-0">
+                {connecting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plug className="h-3.5 w-3.5" />}
+                {metaAccounts.length > 0 ? "Add account" : "Connect"}
+              </Button>
+            </div>
+          </div>
         )}
+
         <IntegrationCard
           logo="in"
           name="LinkedIn"
