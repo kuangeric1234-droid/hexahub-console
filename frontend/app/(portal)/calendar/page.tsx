@@ -319,11 +319,16 @@ function PostModal({ post, open, onClose, onSaved }: {
   const toLocalDatetime = (iso: string | null) =>
     iso ? fmt(new Date(iso), "yyyy-MM-dd'T'HH:mm") : "";
 
-  const [copy,        setCopy]        = useState(post.copy ?? "");
-  const [note,        setNote]        = useState((post.metadata_json?.personal_note as string) ?? "");
-  const [imageUrl,    setImageUrl]    = useState(post.visual_url ?? "");
-  const [aiPrompt,    setAiPrompt]    = useState("");
-  const [scheduledAt, setScheduledAt] = useState(toLocalDatetime(post.scheduled_at));
+  const [copy,               setCopy]               = useState(post.copy ?? "");
+  const [note,               setNote]               = useState((post.metadata_json?.personal_note as string) ?? "");
+  const [imageUrl,           setImageUrl]           = useState(post.visual_url ?? "");
+  const [aiPrompt,           setAiPrompt]           = useState("");
+  const [scheduledAt,        setScheduledAt]        = useState(toLocalDatetime(post.scheduled_at));
+  const [collabHandle,       setCollabHandle]       = useState((post.metadata_json?.collaborator_handle as string) ?? "");
+  const [taggedAccounts,     setTaggedAccounts]     = useState(
+    ((post.metadata_json?.tagged_accounts as string[]) ?? []).join(", ")
+  );
+  const [savingMeta,         setSavingMeta]         = useState(false);
   const [savingCopy,  setSavingCopy]  = useState(false);
   const [savingNote,  setSavingNote]  = useState(false);
   const [rewriting,   setRewriting]   = useState(false);
@@ -422,6 +427,24 @@ function PostModal({ post, open, onClose, onSaved }: {
       onSaved({ status: "approved" });
     } catch { toast.error("Failed"); }
     finally { setScheduling(false); }
+  }
+
+  async function handleSaveInstagramMeta() {
+    setSavingMeta(true);
+    try {
+      const tags = taggedAccounts
+        .split(",")
+        .map(h => h.trim().replace(/^@/, ""))
+        .filter(Boolean);
+      const meta = {
+        ...post.metadata_json,
+        ...(collabHandle.trim() ? { collaborator_handle: collabHandle.trim().replace(/^@/, "") } : {}),
+        tagged_accounts: tags,
+      };
+      await apiClient.patch(`/posts/${post.id}`, { metadata_json: meta } as any);
+      toast.success("Collab & tags saved");
+    } catch { toast.error("Save failed"); }
+    finally { setSavingMeta(false); }
   }
 
   async function handleImageUpload(file: File) {
@@ -638,6 +661,51 @@ function PostModal({ post, open, onClose, onSaved }: {
                 <p className="text-xs text-amber-600">Connect via Settings → Social Accounts</p>
               )}
             </div>
+
+            {/* Collab & Tags — Instagram only */}
+            {post.platform === "instagram" && (
+              <>
+                <Separator />
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Collab & Tags</p>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">Collab with</Label>
+                    <div className="relative">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">@</span>
+                      <Input
+                        className="pl-6 text-xs h-8"
+                        placeholder="creatorhandle"
+                        value={collabHandle}
+                        onChange={(e) => setCollabHandle(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      Co-author invite — appears on both feeds once approved
+                    </p>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tag accounts</Label>
+                    <Input
+                      className="text-xs h-8"
+                      placeholder="@brand, @creator"
+                      value={taggedAccounts}
+                      onChange={(e) => setTaggedAccounts(e.target.value)}
+                    />
+                    <p className="text-[10px] text-muted-foreground leading-tight">
+                      Comma-separated — appended to caption at publish
+                    </p>
+                  </div>
+
+                  <Button size="sm" variant="outline" className="w-full gap-1.5"
+                    onClick={handleSaveInstagramMeta} disabled={savingMeta}>
+                    {savingMeta ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                    Save collab & tags
+                  </Button>
+                </div>
+              </>
+            )}
 
             <Separator />
 

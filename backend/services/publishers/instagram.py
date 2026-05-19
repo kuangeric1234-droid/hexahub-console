@@ -28,6 +28,7 @@ async def InstagramPublisher(
     access_token:        str,
     ig_user_id:          str,
     collaborator_handle: str | None = None,
+    tagged_accounts:     list[str] | None = None,
 ) -> PublishResult:
     if not access_token or not ig_user_id:
         return PublishResult(success=False, error="page_access_token or ig_user_id not configured")
@@ -39,11 +40,20 @@ async def InstagramPublisher(
         )
 
     try:
+        # Append @tagged accounts to caption footer
+        final_copy = copy
+        if tagged_accounts:
+            handles = " ".join(
+                f"@{h.lstrip('@').strip()}" for h in tagged_accounts if h.strip()
+            )
+            if handles:
+                final_copy = f"{copy}\n\n{handles}"
+
         async with httpx.AsyncClient(timeout=30) as client:
             # Step 1 — create media container
             container_params: dict = {
                 "image_url":    visual_url,
-                "caption":      copy,
+                "caption":      final_copy,
                 "access_token": access_token,
             }
 

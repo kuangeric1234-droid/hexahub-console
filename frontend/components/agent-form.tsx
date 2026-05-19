@@ -78,8 +78,9 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
   const [copied,       setCopied]       = useState(false);
   const [imageFile,    setImageFile]    = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [dragOver,          setDragOver]          = useState(false);
-  const [collaboratorHandle, setCollaboratorHandle] = useState("");
+  const [dragOver,           setDragOver]           = useState(false);
+  const [collaboratorHandle, setCollaboratorHandle]  = useState("");
+  const [taggedAccounts,     setTaggedAccounts]      = useState("");
   const fileInputRef   = useRef<HTMLInputElement>(null);
 
   // Save to campaign
@@ -214,9 +215,14 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
         platform:      platformKey,
         copy:          result.copy,
         status:        "draft",
-        metadata_json: collaboratorHandle.trim()
-          ? { collaborator_handle: collaboratorHandle.trim().replace(/^@/, "") }
-          : {},
+        metadata_json: (() => {
+          const meta: Record<string, unknown> = {};
+          if (collaboratorHandle.trim())
+            meta.collaborator_handle = collaboratorHandle.trim().replace(/^@/, "");
+          if (taggedAccounts.trim())
+            meta.tagged_accounts = taggedAccounts.split(",").map(h => h.trim().replace(/^@/, "")).filter(Boolean);
+          return meta;
+        })(),
         ...(schedule ? { scheduled_at: new Date(scheduledAt).toISOString() } : {}),
       });
       setSaved(true);
@@ -332,6 +338,21 @@ export function AgentForm({ config }: { config: AgentFormConfig }) {
                     </div>
                     <p className="text-xs text-muted-foreground">
                       Instagram username of the collaborator. They'll get an invite to approve — post appears on both feeds once accepted.
+                    </p>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="flex items-center gap-1.5">
+                      Tag accounts
+                      <span className="text-muted-foreground font-normal text-xs">(optional)</span>
+                    </Label>
+                    <Input
+                      placeholder="@creator1, @brand2, @photographer"
+                      value={taggedAccounts}
+                      onChange={(e) => setTaggedAccounts(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Comma-separated handles. Appended to caption footer at publish time.
                     </p>
                   </div>
                 </>
